@@ -10,7 +10,7 @@
   "permissions": ["identity", "storage"],
   "host_permissions": [
     "https://fact-checker-6ggdvbnyi-amit-s-projects-3f01818e.vercel.app/*",
-    "https://fact-checker-website-pf3ao4u8a-amit-s-projects-3f01818e.vercel.app/*"
+    "https://fact-checker-website-er6ni2ic6-amit-s-projects-3f01818e.vercel.app/*"
   ],
   "icons": {
     "16": "icons/icon16.png",

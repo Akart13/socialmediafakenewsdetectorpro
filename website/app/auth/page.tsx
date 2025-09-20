@@ -13,11 +13,6 @@ export default function AuthPage() {
   const router = useRouter();
 
   useEffect(() => {
-    if (!auth) {
-      setLoading(false);
-      return;
-    }
-
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
       setLoading(false);
@@ -27,11 +22,6 @@ export default function AuthPage() {
   }, []);
 
   const handleGoogleSignIn = async () => {
-    if (!auth || !googleProvider) {
-      alert('Authentication not available. Please configure Firebase.');
-      return;
-    }
-
     try {
       setSigningIn(true);
       await signInWithPopup(auth, googleProvider);
@@ -45,8 +35,6 @@ export default function AuthPage() {
   };
 
   const handleSignOut = async () => {
-    if (!auth) return;
-
     try {
       await signOut(auth);
       setUser(null);

@@ -15,11 +15,6 @@ function BillingContent() {
   const searchParams = useSearchParams();
 
   useEffect(() => {
-    if (!auth) {
-      setLoading(false);
-      return;
-    }
-
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
       setLoading(false);
@@ -44,7 +39,7 @@ function BillingContent() {
   }, [router, searchParams]);
 
   const handleUpgrade = async () => {
-    if (!user || !auth) return;
+    if (!user) return;
 
     try {
       setCreatingCheckout(true);
