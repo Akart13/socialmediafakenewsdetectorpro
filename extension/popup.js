@@ -13,7 +13,7 @@ var PopupManager = class {
     __publicField(this, "token", null);
     __publicField(this, "limits", null);
     this.apiDomain = "https://fact-checker-6ggdvbnyi-amit-s-projects-3f01818e.vercel.app";
-    this.siteDomain = "https://fact-checker-website-er6ni2ic6-amit-s-projects-3f01818e.vercel.app";
+    this.siteDomain = "https://fact-checker-website-2g0ez0thr-amit-s-projects-3f01818e.vercel.app";
     this.init();
   }
   async init() {
@@ -69,26 +69,86 @@ var PopupManager = class {
   }
   async login() {
     try {
-      const redirectUri = chrome.identity.getRedirectURL();
-      const authUrl = `${this.siteDomain}/ext/login?redirect_uri=${encodeURIComponent(redirectUri)}`;
-      const responseUrl = await chrome.identity.launchWebAuthFlow({
-        url: authUrl,
-        interactive: true
-      });
-      const url = new URL(responseUrl);
-      const token = url.hash.match(/token=([^&]+)/)?.[1];
-      if (token) {
-        await this.saveToken(token);
-        await this.loadLimits();
-        this.updateUI();
-        this.showStatus("Successfully signed in!", "success");
-      } else {
-        throw new Error("No token received");
-      }
+      const state = "ext_login_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+      await chrome.storage.local.set({ loginState: state });
+      const authUrl = `${this.siteDomain}/auth?state=${state}&source=extension`;
+      const tab = await chrome.tabs.create({ url: authUrl });
+      this.showStatus("Please complete sign-in in the new tab...", "warning");
+      this.pollForAuth(state, tab.id);
     } catch (error) {
       console.error("Login error:", error);
       this.showStatus("Login failed. Please try again.", "error");
     }
+  }
+  pollForAuth(state, tabId) {
+    const pollInterval = setInterval(async () => {
+      try {
+        if (tabId) {
+          try {
+            await chrome.tabs.get(tabId);
+          } catch (error) {
+            clearInterval(pollInterval);
+            this.showStatus("Login cancelled. Please try again.", "warning");
+            return;
+          }
+        }
+        const result = await chrome.storage.local.get(["authToken", "loginState"]);
+        let websiteToken = null;
+        if (tabId) {
+          try {
+            const results = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: () => {
+                return {
+                  token: localStorage.getItem("ext_auth_token"),
+                  state: localStorage.getItem("ext_auth_state")
+                };
+              }
+            });
+            if (results && results[0] && results[0].result) {
+              websiteToken = results[0].result.token;
+              const websiteState = results[0].result.state;
+              if (websiteToken && websiteState === state) {
+                await chrome.storage.local.set({ authToken: websiteToken });
+                await chrome.scripting.executeScript({
+                  target: { tabId },
+                  func: () => {
+                    localStorage.removeItem("ext_auth_token");
+                    localStorage.removeItem("ext_auth_state");
+                  }
+                });
+              }
+            }
+          } catch (error) {
+            console.log("Could not check website localStorage:", error);
+          }
+        }
+        if (result.authToken && result.loginState === state || websiteToken) {
+          clearInterval(pollInterval);
+          this.showStatus("Successfully signed in!", "success");
+          await this.loadLimits();
+          this.updateUI();
+          if (tabId) {
+            try {
+              await chrome.tabs.remove(tabId);
+            } catch (error) {
+            }
+          }
+          await chrome.storage.local.remove(["loginState"]);
+        }
+      } catch (error) {
+        console.error("Polling error:", error);
+      }
+    }, 2e3);
+    setTimeout(() => {
+      clearInterval(pollInterval);
+      if (tabId) {
+        chrome.tabs.get(tabId).then(() => {
+          this.showStatus("Login timed out. Please try again.", "warning");
+        }).catch(() => {
+        });
+      }
+    }, 5 * 60 * 1e3);
   }
   async factCheck() {
     const input = document.getElementById("input")?.value.trim();

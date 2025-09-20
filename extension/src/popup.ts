@@ -26,7 +26,7 @@ class PopupManager {
   constructor() {
     // These should be configured based on environment
     this.apiDomain = 'https://fact-checker-6ggdvbnyi-amit-s-projects-3f01818e.vercel.app'; // Replace with actual API domain
-    this.siteDomain = 'https://fact-checker-website-er6ni2ic6-amit-s-projects-3f01818e.vercel.app';
+    this.siteDomain = 'https://fact-checker-website-2g0ez0thr-amit-s-projects-3f01818e.vercel.app';
     
     this.init();
   }
@@ -91,30 +91,118 @@ class PopupManager {
 
   private async login(): Promise<void> {
     try {
-      const redirectUri = chrome.identity.getRedirectURL();
-      const authUrl = `${this.siteDomain}/ext/login?redirect_uri=${encodeURIComponent(redirectUri)}`;
+      // Generate a unique state parameter for this login session
+      const state = 'ext_login_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
       
-      const responseUrl = await chrome.identity.launchWebAuthFlow({
-        url: authUrl,
-        interactive: true
-      });
-
-      // Extract token from URL hash
-      const url = new URL(responseUrl);
-      const token = url.hash.match(/token=([^&]+)/)?.[1];
+      // Store the state so we can verify it later
+      await chrome.storage.local.set({ loginState: state });
       
-      if (token) {
-        await this.saveToken(token);
-        await this.loadLimits();
-        this.updateUI();
-        this.showStatus('Successfully signed in!', 'success');
-      } else {
-        throw new Error('No token received');
-      }
+      // Open the auth page in a new tab with the state parameter
+      const authUrl = `${this.siteDomain}/auth?state=${state}&source=extension`;
+      
+      const tab = await chrome.tabs.create({ url: authUrl });
+      
+      this.showStatus('Please complete sign-in in the new tab...', 'warning');
+      
+      // Start polling for authentication completion
+      this.pollForAuth(state, tab.id);
     } catch (error) {
       console.error('Login error:', error);
       this.showStatus('Login failed. Please try again.', 'error');
     }
+  }
+
+  private pollForAuth(state: string, tabId: number | undefined): void {
+    const pollInterval = setInterval(async () => {
+      try {
+        // Check if the tab is still open
+        if (tabId) {
+          try {
+            await chrome.tabs.get(tabId);
+          } catch (error) {
+            // Tab was closed, stop polling
+            clearInterval(pollInterval);
+            this.showStatus('Login cancelled. Please try again.', 'warning');
+            return;
+          }
+        }
+        
+        // Check if we have a token in storage (either from extension storage or website localStorage)
+        const result = await chrome.storage.local.get(['authToken', 'loginState']);
+        
+        // Also check if the website stored a token in localStorage (we can't access this directly,
+        // but we can try to inject a script to check it)
+        let websiteToken = null;
+        if (tabId) {
+          try {
+            const results = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: () => {
+                return {
+                  token: localStorage.getItem('ext_auth_token'),
+                  state: localStorage.getItem('ext_auth_state')
+                };
+              }
+            });
+            
+            if (results && results[0] && results[0].result) {
+              websiteToken = results[0].result.token;
+              const websiteState = results[0].result.state;
+              
+              if (websiteToken && websiteState === state) {
+                // Found matching token from website
+                await chrome.storage.local.set({ authToken: websiteToken });
+                // Clear website storage
+                await chrome.scripting.executeScript({
+                  target: { tabId },
+                  func: () => {
+                    localStorage.removeItem('ext_auth_token');
+                    localStorage.removeItem('ext_auth_state');
+                  }
+                });
+              }
+            }
+          } catch (error) {
+            // Script injection might fail, that's okay
+            console.log('Could not check website localStorage:', error);
+          }
+        }
+        
+        if ((result.authToken && result.loginState === state) || websiteToken) {
+          // Authentication successful!
+          clearInterval(pollInterval);
+          this.showStatus('Successfully signed in!', 'success');
+          await this.loadLimits();
+          this.updateUI();
+          
+          // Close the auth tab if it's still open
+          if (tabId) {
+            try {
+              await chrome.tabs.remove(tabId);
+            } catch (error) {
+              // Tab might already be closed, ignore
+            }
+          }
+          
+          // Clean up the login state
+          await chrome.storage.local.remove(['loginState']);
+        }
+      } catch (error) {
+        console.error('Polling error:', error);
+      }
+    }, 2000); // Poll every 2 seconds
+    
+    // Stop polling after 5 minutes
+    setTimeout(() => {
+      clearInterval(pollInterval);
+      if (tabId) {
+        chrome.tabs.get(tabId).then(() => {
+          this.showStatus('Login timed out. Please try again.', 'warning');
+        }).catch(() => {
+          // Tab was closed, that's fine
+        });
+      }
+    }, 5 * 60 * 1000);
   }
 
   private async factCheck(): Promise<void> {

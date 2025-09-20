@@ -75,7 +75,17 @@ export async function GET(request: NextRequest) {
     const redirectUrl = new URL(redirectUri);
     redirectUrl.hash = `token=${appToken}`;
     
-    return NextResponse.redirect(redirectUrl.toString());
+    const response = NextResponse.redirect(redirectUrl.toString());
+    
+    // Add CORS headers for extension compatibility
+    response.headers.set('Cross-Origin-Embedder-Policy', 'unsafe-none');
+    response.headers.set('Cross-Origin-Opener-Policy', 'unsafe-none');
+    response.headers.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    response.headers.set('Access-Control-Allow-Origin', '*');
+    response.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    
+    return response;
     
   } catch (error) {
     console.error('Extension login error:', error);
@@ -86,4 +96,19 @@ export async function GET(request: NextRequest) {
 // Handle POST requests (for form submissions)
 export async function POST(request: NextRequest) {
   return GET(request);
+}
+
+// Handle OPTIONS requests for CORS preflight
+export async function OPTIONS(request: NextRequest) {
+  const response = new NextResponse(null, { status: 200 });
+  
+  // Add CORS headers
+  response.headers.set('Access-Control-Allow-Origin', '*');
+  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  response.headers.set('Cross-Origin-Embedder-Policy', 'unsafe-none');
+  response.headers.set('Cross-Origin-Opener-Policy', 'unsafe-none');
+  response.headers.set('Cross-Origin-Resource-Policy', 'cross-origin');
+  
+  return response;
 }

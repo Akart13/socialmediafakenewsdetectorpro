@@ -10,12 +10,51 @@ export default function AuthPage() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [signingIn, setSigningIn] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const router = useRouter();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       setLoading(false);
+      
+      // If user just signed in and we have extension parameters, handle extension auth
+      if (user && typeof window !== 'undefined') {
+        const urlParams = new URLSearchParams(window.location.search);
+        const state = urlParams.get('state');
+        const source = urlParams.get('source');
+        
+        if (source === 'extension' && state) {
+          // This is an extension login, create app JWT and store it
+          try {
+            const idToken = await user.getIdToken();
+            const response = await fetch('/api/ext/auth', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${idToken}`
+              },
+              body: JSON.stringify({ state })
+            });
+            
+            if (response.ok) {
+              const { appToken } = await response.json();
+              
+              // Store the app token in localStorage so the extension can find it
+              localStorage.setItem('ext_auth_token', appToken);
+              localStorage.setItem('ext_auth_state', state);
+              
+              // Show success message
+              setMessage({ type: 'success', text: 'Successfully signed in! You can close this tab and return to the extension.' });
+            } else {
+              throw new Error('Failed to create app token');
+            }
+          } catch (error) {
+            console.error('Extension auth error:', error);
+            setMessage({ type: 'error', text: 'Authentication failed. Please try again.' });
+          }
+        }
+      }
     });
 
     return () => unsubscribe();
