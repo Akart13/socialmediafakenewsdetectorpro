@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Icon Generator</title>
+</head>
+<body>
+    <h3>Fact Checker Extension Icons</h3>
+    <canvas id="canvas16" width="16" height="16" style="border: 1px solid #ccc; margin: 5px;"></canvas>
+    <canvas id="canvas48" width="48" height="48" style="border: 1px solid #ccc; margin: 5px;"></canvas>
+    <canvas id="canvas128" width="128" height="128" style="border: 1px solid #ccc; margin: 5px;"></canvas>
+    
+    <br><br>
+    <button onclick="generateAllIcons()">Generate All Icons</button>
+    <button onclick="downloadAll()">Download All Icons</button>
+    
+    <script>
+        function generateAllIcons() {
+            generateIcon('canvas16', 16);
+            generateIcon('canvas48', 48);
+            generateIcon('canvas128', 128);
+        }
+        
+        function generateIcon(canvasId, size) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, size, size);
+            
+            // Background gradient
+            const gradient = ctx.createLinearGradient(0, 0, size, size);
+            gradient.addColorStop(0, '#667eea');
+            gradient.addColorStop(1, '#764ba2');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, size, size);
+            
+            // Magnifying glass
+            const centerX = size / 2;
+            const centerY = size / 2;
+            const radius = size * 0.25;
+            
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = Math.max(1, size * 0.08);
+            ctx.beginPath();
+            ctx.arc(centerX - size * 0.08, centerY - size * 0.08, radius, 0, 2 * Math.PI);
+            ctx.stroke();
+            
+            // Handle
+            ctx.beginPath();
+            ctx.moveTo(centerX + size * 0.15, centerY + size * 0.15);
+            ctx.lineTo(centerX + size * 0.3, centerY + size * 0.3);
+            ctx.stroke();
+            
+            // Checkmark
+            ctx.strokeStyle = '#28a745';
+            ctx.lineWidth = Math.max(1, size * 0.06);
+            ctx.beginPath();
+            ctx.moveTo(centerX - size * 0.12, centerY - size * 0.02);
+            ctx.lineTo(centerX - size * 0.02, centerY + size * 0.08);
+            ctx.lineTo(centerX + size * 0.12, centerY - size * 0.12);
+            ctx.stroke();
+        }
+        
+        function downloadIcon(canvasId, filename) {
+            const canvas = document.getElementById(canvasId);
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+        
+        function downloadAll() {
+            downloadIcon('canvas16', 'icon16.png');
+            downloadIcon('canvas48', 'icon48.png');
+            downloadIcon('canvas128', 'icon128.png');
+        }
+        
+        // Generate icons on load
+        window.onload = function() {
+            generateAllIcons();
+        };
+    </script>
+</body>
+</html>
