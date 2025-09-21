@@ -33,6 +33,10 @@ async function factCheck(text: string): Promise<{ result: string; credibility: n
 
 export async function POST(request: NextRequest) {
   try {
+    if (!db) {
+      return NextResponse.json({ error: 'Firebase Admin not initialized. Please check environment variables.' }, { status: 500 });
+    }
+    
     const { uid } = await requireAuth(request);
     const { text } = await request.json();
     

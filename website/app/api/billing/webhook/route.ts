@@ -15,6 +15,10 @@ function getStripe(): Stripe {
 }
 
 export async function POST(request: NextRequest) {
+  if (!db) {
+    return NextResponse.json({ error: 'Firebase Admin not initialized. Please check environment variables.' }, { status: 500 });
+  }
+  
   const sig = request.headers.get('stripe-signature') as string;
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
   
