@@ -28,11 +28,28 @@ function BillingContent() {
     // Check for success/cancel messages from Stripe
     const success = searchParams.get('success');
     const canceled = searchParams.get('canceled');
+    const redirectUri = searchParams.get('redirect_uri');
     
     if (success) {
-      setMessage({ type: 'success', text: 'Payment successful! You now have Pro access.' });
+      if (redirectUri) {
+        // If this is from an extension, redirect back with success token
+        const redirectUrl = new URL(redirectUri);
+        redirectUrl.hash = 'payment=success';
+        window.location.replace(redirectUrl.toString());
+        return;
+      } else {
+        setMessage({ type: 'success', text: 'Payment successful! You now have Pro access.' });
+      }
     } else if (canceled) {
-      setMessage({ type: 'error', text: 'Payment was canceled.' });
+      if (redirectUri) {
+        // If this is from an extension, redirect back with cancel token
+        const redirectUrl = new URL(redirectUri);
+        redirectUrl.hash = 'payment=canceled';
+        window.location.replace(redirectUrl.toString());
+        return;
+      } else {
+        setMessage({ type: 'error', text: 'Payment was canceled.' });
+      }
     }
 
     return () => unsubscribe();
@@ -47,12 +64,16 @@ function BillingContent() {
       // Get ID token for API authentication
       const idToken = await user.getIdToken();
       
+      // Get redirect_uri from URL params if present
+      const redirectUri = searchParams.get('redirect_uri');
+      
       const response = await fetch('/api/billing/create-checkout-session', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${idToken}`
-        }
+        },
+        body: JSON.stringify({ redirect_uri: redirectUri })
       });
 
       if (!response.ok) {

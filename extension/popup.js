@@ -12,8 +12,8 @@ var PopupManager = class {
     __publicField(this, "siteDomain");
     __publicField(this, "token", null);
     __publicField(this, "limits", null);
-    this.apiDomain = "https://fact-checker-website-67j6j4gll-amit-s-projects-3f01818e.vercel.app/";
-    this.siteDomain = "https://fact-checker-website-67j6j4gll-amit-s-projects-3f01818e.vercel.app/";
+    this.apiDomain = "https://fact-checker-website-q15r0nl5o-amit-s-projects-3f01818e.vercel.app/";
+    this.siteDomain = "https://fact-checker-website-q15r0nl5o-amit-s-projects-3f01818e.vercel.app/";
     this.init();
   }
   async init() {
@@ -196,7 +196,8 @@ var PopupManager = class {
       return;
     }
     try {
-      await chrome.tabs.create({ url: `${this.siteDomain}/billing` });
+      const redirectUri = chrome.runtime.getURL("popup.html");
+      await chrome.tabs.create({ url: `${this.siteDomain}/billing?redirect_uri=${encodeURIComponent(redirectUri)}` });
       this.pollForPlanChanges();
     } catch (error) {
       console.error("Upgrade error:", error);

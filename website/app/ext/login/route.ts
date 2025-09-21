@@ -1,26 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuth } from 'firebase-admin/auth';
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
-import jwt from 'jsonwebtoken';
+import { adminAuth } from '@/lib/firebaseAdmin';
+import { signToken } from '@/lib/jwt';
 
-// Initialize Firebase Admin for server-side operations
-if (!getApps().length) {
-  const serviceAccount = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  if (serviceAccount) {
-    initializeApp({
-      credential: cert(require(serviceAccount))
-    });
-  } else {
-    // For production deployments
-    initializeApp();
-  }
-}
-
-const JWT_SECRET: string = process.env.APP_JWT_SECRET || 'fallback-secret-for-development-only';
-
-if (!process.env.APP_JWT_SECRET) {
-  console.warn('WARNING: APP_JWT_SECRET environment variable not set. Using fallback secret for development.');
-}
+export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
   try {
@@ -42,7 +24,7 @@ export async function GET(request: NextRequest) {
       // Handle Firebase ID token from Authorization header
       const idToken = authHeader.substring(7);
       try {
-        const decodedToken = await getAuth().verifyIdToken(idToken);
+        const decodedToken = await adminAuth.verifyIdToken(idToken);
         uid = decodedToken.uid;
         email = decodedToken.email || '';
       } catch (error) {
@@ -52,7 +34,7 @@ export async function GET(request: NextRequest) {
     } else if (sessionCookie) {
       // Handle Firebase session cookie
       try {
-        const decodedToken = await getAuth().verifySessionCookie(sessionCookie);
+        const decodedToken = await adminAuth.verifySessionCookie(sessionCookie);
         uid = decodedToken.uid;
         email = decodedToken.email || '';
       } catch (error) {
@@ -65,11 +47,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Create app JWT token
-    const appToken = jwt.sign(
-      { uid, email },
-      JWT_SECRET,
-      { expiresIn: '24h' }
-    );
+    const appToken = signToken({ uid, email });
 
     // Redirect to extension with token
     const redirectUrl = new URL(redirectUri);

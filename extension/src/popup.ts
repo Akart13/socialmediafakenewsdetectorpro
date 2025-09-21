@@ -25,8 +25,8 @@ class PopupManager {
 
   constructor() {
     // These should be configured based on environment
-    this.apiDomain = 'https://fact-checker-website-j4gfvisri-amit-s-projects-3f01818e.vercel.app';
-    this.siteDomain = 'https://fact-checker-website-j4gfvisri-amit-s-projects-3f01818e.vercel.app';
+    this.apiDomain = 'https://fact-checker-website-e8n29bn8e-amit-s-projects-3f01818e.vercel.app';
+    this.siteDomain = 'https://fact-checker-website-e8n29bn8e-amit-s-projects-3f01818e.vercel.app';
     
     this.init();
   }
@@ -260,8 +260,11 @@ class PopupManager {
     }
 
     try {
-      // Open billing page
-      await chrome.tabs.create({ url: `${this.siteDomain}/billing` });
+      // Generate a unique redirect URI for this extension instance
+      const redirectUri = chrome.runtime.getURL('popup.html');
+      
+      // Open billing page with redirect_uri parameter
+      await chrome.tabs.create({ url: `${this.siteDomain}/billing?redirect_uri=${encodeURIComponent(redirectUri)}` });
       
       // Poll for plan changes
       this.pollForPlanChanges();

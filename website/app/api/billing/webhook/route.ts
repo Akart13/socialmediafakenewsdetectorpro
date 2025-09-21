@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebaseAdmin';
 import Stripe from 'stripe';
 
+export const runtime = 'nodejs';
+
 // Initialize Stripe
 function getStripe(): Stripe {
   if (!process.env.STRIPE_SECRET) {

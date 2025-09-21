@@ -3,6 +3,8 @@ import { db } from '@/lib/firebaseAdmin';
 import { requireAuth, createAuthResponse } from '@/lib/auth';
 import Stripe from 'stripe';
 
+export const runtime = 'nodejs';
+
 // Initialize Stripe
 function getStripe(): Stripe {
   if (!process.env.STRIPE_SECRET) {
@@ -16,6 +18,7 @@ function getStripe(): Stripe {
 export async function POST(request: NextRequest) {
   try {
     const { uid, email } = await requireAuth(request);
+    const { redirect_uri } = await request.json();
     
     // Get or create Stripe customer
     let userDoc = await db.collection('users').doc(uid).get();
@@ -39,6 +42,16 @@ export async function POST(request: NextRequest) {
     
     // Create checkout session
     const stripe = getStripe();
+    
+    // Build success and cancel URLs
+    const baseUrl = `${process.env.SITE_DOMAIN}/billing`;
+    const successUrl = redirect_uri 
+      ? `${baseUrl}?success=true&redirect_uri=${encodeURIComponent(redirect_uri)}`
+      : `${baseUrl}?success=true`;
+    const cancelUrl = redirect_uri
+      ? `${baseUrl}?canceled=true&redirect_uri=${encodeURIComponent(redirect_uri)}`
+      : `${baseUrl}?canceled=true`;
+    
     const session = await stripe.checkout.sessions.create({
       customer: stripeCustomerId,
       payment_method_types: ['card'],
@@ -47,8 +60,8 @@ export async function POST(request: NextRequest) {
         quantity: 1
       }],
       mode: 'subscription',
-      success_url: `${process.env.SITE_DOMAIN}/billing?success=true`,
-      cancel_url: `${process.env.SITE_DOMAIN}/billing?canceled=true`,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
       metadata: { uid }
     });
     

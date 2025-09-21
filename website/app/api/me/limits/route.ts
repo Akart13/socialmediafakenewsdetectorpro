@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebaseAdmin';
 import { requireAuth, createAuthResponse } from '@/lib/auth';
 
+export const runtime = 'nodejs';
+
 function todayUtc(): string {
   return new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 }

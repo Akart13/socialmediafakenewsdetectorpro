@@ -3,6 +3,8 @@ import { adminAuth } from '@/lib/firebaseAdmin';
 import { signToken } from '@/lib/jwt';
 import jwt from 'jsonwebtoken';
 
+export const runtime = 'nodejs';
+
 export async function POST(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
