@@ -47,7 +47,7 @@ function BillingContent() {
       // Get ID token for API authentication
       const idToken = await user.getIdToken();
       
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/billing/create-checkout-session`, {
+      const response = await fetch('/api/billing/create-checkout-session', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

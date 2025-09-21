@@ -1,18 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuth } from 'firebase-admin/auth';
-import { initializeApp, getApps } from 'firebase-admin/app';
+import { adminAuth } from '@/lib/firebaseAdmin';
+import { signToken } from '@/lib/jwt';
 import jwt from 'jsonwebtoken';
-
-// Initialize Firebase Admin for server-side operations
-if (!getApps().length) {
-  initializeApp();
-}
-
-const JWT_SECRET: string = process.env.APP_JWT_SECRET || 'fallback-secret-for-development-only';
-
-if (!process.env.APP_JWT_SECRET) {
-  console.warn('WARNING: APP_JWT_SECRET environment variable not set. Using fallback secret for development.');
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,7 +14,7 @@ export async function POST(request: NextRequest) {
     const idToken = authHeader.substring(7);
     
     // Verify the Firebase ID token
-    const decodedToken = await getAuth().verifyIdToken(idToken);
+    const decodedToken = await adminAuth.verifyIdToken(idToken);
     const uid = decodedToken.uid;
     const email = decodedToken.email || '';
 
@@ -40,7 +29,7 @@ export async function POST(request: NextRequest) {
     // Create app JWT token
     const appToken = jwt.sign(
       { uid, email },
-      JWT_SECRET,
+      process.env.APP_JWT_SECRET!,
       { expiresIn: '24h' }
     );
 

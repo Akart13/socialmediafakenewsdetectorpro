@@ -12,8 +12,8 @@ var PopupManager = class {
     __publicField(this, "siteDomain");
     __publicField(this, "token", null);
     __publicField(this, "limits", null);
-    this.apiDomain = "https://fact-checker-6ggdvbnyi-amit-s-projects-3f01818e.vercel.app";
-    this.siteDomain = "https://fact-checker-website-2g0ez0thr-amit-s-projects-3f01818e.vercel.app";
+    this.apiDomain = "https://fact-checker-website-j4gfvisri-amit-s-projects-3f01818e.vercel.app";
+    this.siteDomain = "https://fact-checker-website-j4gfvisri-amit-s-projects-3f01818e.vercel.app";
     this.init();
   }
   async init() {

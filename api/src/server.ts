@@ -3,8 +3,10 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 import Stripe from 'stripe';
-import { verifyToken, JWTPayload } from './jwt';
+import { verifyToken, JWTPayload, signToken } from './jwt';
+import jwt from 'jsonwebtoken';
 
 // Load environment variables
 dotenv.config();
@@ -26,8 +28,10 @@ if (!getApps().length) {
 }
 
 let db: any;
+let admin: any;
 try {
   db = getFirestore();
+  admin = { auth: getAuth() };
   console.log('Firestore initialized successfully');
 } catch (error) {
   console.error('Firestore initialization error:', error);
@@ -49,8 +53,14 @@ try {
 }
 
 // Middleware
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://fact-checker-website-j4gfvisri-amit-s-projects-3f01818e.vercel.app',
+  ...(process.env.CORS_ALLOW?.split(',').map(origin => origin.trim()) || [])
+];
+
 app.use(cors({
-  origin: process.env.CORS_ALLOW?.split(',').map(origin => origin.trim()) || ['http://localhost:3000'],
+  origin: allowedOrigins,
   credentials: false
 }));
 
@@ -190,6 +200,48 @@ app.post('/api/fact-check', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Error during fact check:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/ext/auth - Extension authentication endpoint
+app.post('/api/ext/auth', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Missing or invalid authorization header' });
+    }
+
+    const idToken = authHeader.substring(7);
+    
+    // Verify the Firebase ID token
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const uid = decodedToken.uid;
+    const email = decodedToken.email || '';
+
+    // Get the state from request body
+    const state = req.body.state;
+
+    if (!state) {
+      return res.status(400).json({ error: 'Missing state parameter' });
+    }
+
+    // Create app JWT token
+    const appToken = jwt.sign(
+      { uid, email },
+      process.env.APP_JWT_SECRET!,
+      { expiresIn: '24h' }
+    );
+
+    res.json({ 
+      appToken,
+      uid,
+      email 
+    });
+    
+  } catch (error) {
+    console.error('Extension auth error:', error);
+    res.status(500).json({ error: 'Authentication failed' });
   }
 });
 
