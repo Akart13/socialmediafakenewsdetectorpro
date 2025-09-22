@@ -10,7 +10,10 @@ export function signToken(payload: JWTPayload): string {
   if (!secret) {
     throw new Error('APP_JWT_SECRET environment variable is required');
   }
-  return jwt.sign(payload, secret, { expiresIn: '24h' });
+  return jwt.sign(payload, secret, { 
+    expiresIn: '24h',
+    algorithm: 'HS256'
+  });
 }
 
 export function verifyToken(token: string): JWTPayload {
@@ -18,5 +21,5 @@ export function verifyToken(token: string): JWTPayload {
   if (!secret) {
     throw new Error('APP_JWT_SECRET environment variable is required');
   }
-  return jwt.verify(token, secret) as JWTPayload;
+  return jwt.verify(token, secret, { algorithms: ['HS256'] }) as JWTPayload;
 }

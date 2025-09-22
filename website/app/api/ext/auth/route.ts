@@ -7,10 +7,6 @@ export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   try {
-    if (!adminAuth) {
-      return NextResponse.json({ error: 'Firebase Admin not initialized. Please check environment variables.' }, { status: 500 });
-    }
-    
     const authHeader = request.headers.get('authorization');
     
     if (!authHeader?.startsWith('Bearer ')) {
@@ -36,7 +32,10 @@ export async function POST(request: NextRequest) {
     const appToken = jwt.sign(
       { uid, email },
       process.env.APP_JWT_SECRET!,
-      { expiresIn: '24h' }
+      { 
+        expiresIn: '24h',
+        algorithm: 'HS256'
+      }
     );
 
     return NextResponse.json({ 

@@ -17,10 +17,6 @@ function getStripe(): Stripe {
 
 export async function POST(request: NextRequest) {
   try {
-    if (!db) {
-      return NextResponse.json({ error: 'Firebase Admin not initialized. Please check environment variables.' }, { status: 500 });
-    }
-    
     const { uid, email } = await requireAuth(request);
     const { redirect_uri } = await request.json();
     

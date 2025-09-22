@@ -17,10 +17,6 @@ function resetsAtIso(): string {
 
 export async function GET(request: NextRequest) {
   try {
-    if (!db) {
-      return NextResponse.json({ error: 'Firebase Admin not initialized. Please check environment variables.' }, { status: 500 });
-    }
-    
     const { uid } = await requireAuth(request);
     const today = todayUtc();
     

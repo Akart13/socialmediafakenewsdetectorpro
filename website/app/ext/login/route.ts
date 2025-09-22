@@ -6,10 +6,6 @@ export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
   try {
-    if (!adminAuth) {
-      return NextResponse.json({ error: 'Firebase Admin not initialized. Please check environment variables.' }, { status: 500 });
-    }
-    
     const { searchParams } = new URL(request.url);
     const redirectUri = searchParams.get('redirect_uri');
     
