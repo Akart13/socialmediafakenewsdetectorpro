@@ -18,8 +18,32 @@ export default function AuthPage() {
       setUser(user);
       setLoading(false);
       
-      // If user just signed in and we have extension parameters, handle extension auth
+      // Register user in Firebase immediately after sign-up
       if (user && typeof window !== 'undefined') {
+        console.log('User signed in, attempting to register in Firestore:', user.uid, user.email);
+        try {
+          const idToken = await user.getIdToken();
+          console.log('Got ID token, calling registration API...');
+          
+          const registerResponse = await fetch('/api/users/register', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${idToken}`
+            }
+          });
+          
+          if (registerResponse.ok) {
+            const result = await registerResponse.json();
+            console.log('User registration successful:', result);
+          } else {
+            const errorText = await registerResponse.text();
+            console.error('Failed to register user in Firebase:', registerResponse.status, errorText);
+          }
+        } catch (error) {
+          console.error('Error registering user:', error);
+        }
+
         const urlParams = new URLSearchParams(window.location.search);
         const state = urlParams.get('state');
         const source = urlParams.get('source');

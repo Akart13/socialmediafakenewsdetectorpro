@@ -25,6 +25,9 @@ export async function GET(request: NextRequest) {
     const userData = userDoc.data();
     const plan = userData?.plan || 'free';
     
+    console.log(`[LIMITS API] User ${uid} - Raw userData:`, userData);
+    console.log(`[LIMITS API] User ${uid} - Plan: ${plan}`);
+    
     // Get today's usage
     const usageDocId = `${uid}_${today}`;
     const usageDoc = await db.collection('usage').doc(usageDocId).get();

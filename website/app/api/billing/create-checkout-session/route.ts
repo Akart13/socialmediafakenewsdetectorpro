@@ -69,14 +69,9 @@ async function getOrCreateStripeCustomer(uid: string, email: string): Promise<st
     }
   }
   
-  // Ensure user document exists with basic info, then update
-  await db.collection('users').doc(uid).set({
-    uid,
-    email,
-    plan: 'free',
-    createdAt: new Date(),
-    ...updates
-  }, { merge: true });
+  // Update user document with Stripe customer info
+  // Note: User document should already exist from registration after Google sign-up
+  await db.collection('users').doc(uid).update(updates);
   
   return stripeCustomerId;
 }
