@@ -14,11 +14,41 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Respond to ping to verify extension context is valid
     sendResponse({ status: 'ok' });
     return false;
+  } else if (request.action === 'checkAuth') {
+    checkAuthentication(sendResponse);
+    return true;
+  } else if (request.action === 'getUsage') {
+    getUsageStats(sendResponse);
+    return true;
   }
 });
 
 async function handleFactCheck(data, sendResponse) {
   try {
+    // Check authentication first
+    const authResult = await checkAuthenticationSync();
+    if (!authResult.authenticated) {
+      sendResponse({
+        success: false,
+        error: 'Please sign in to use the fact checker',
+        requiresAuth: true
+      });
+      return;
+    }
+
+    // Check usage limits for free users
+    const usageResult = await getUsageStatsSync();
+    if (authResult.plan === 'free' && usageResult.todayChecks >= 5) {
+      sendResponse({
+        success: false,
+        error: 'Daily limit reached. Upgrade to Pro for unlimited checks.',
+        limitReached: true,
+        todayChecks: usageResult.todayChecks,
+        maxChecks: 5
+      });
+      return;
+    }
+
     // Validate input data
     if (!data || typeof data !== 'object') {
       throw new Error('Invalid data provided');
@@ -43,7 +73,8 @@ async function handleFactCheck(data, sendResponse) {
       results: {
         claims: factCheckResults.claims,
         overallRating: factCheckResults.overallRating
-      }
+      },
+      usage: await getUsageStatsSync()
     });
     
   } catch (error) {
@@ -604,5 +635,86 @@ async function updateStats() {
     await chrome.storage.local.set({ stats });
   } catch (error) {
     console.error('Error updating stats:', error);
+  }
+}
+
+// Authentication functions
+async function checkAuthentication(sendResponse) {
+  try {
+    const result = await checkAuthenticationSync();
+    sendResponse(result);
+  } catch (error) {
+    console.error('Auth check error:', error);
+    sendResponse({ authenticated: false, error: error.message });
+  }
+}
+
+async function checkAuthenticationSync() {
+  try {
+    const result = await chrome.storage.local.get(['authToken', 'userInfo']);
+    const token = result.authToken;
+    const userInfo = result.userInfo;
+    
+    if (!token || !userInfo) {
+      return { authenticated: false };
+    }
+    
+    // Verify token with API
+    const apiDomain = 'https://fact-checker-website.vercel.app';
+    const response = await fetch(`${apiDomain}/api/me/limits`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (!response.ok) {
+      // Token invalid, clear it
+      await chrome.storage.local.remove(['authToken', 'userInfo']);
+      return { authenticated: false };
+    }
+    
+    const data = await response.json();
+    return {
+      authenticated: true,
+      plan: data.plan || 'free',
+      userInfo: userInfo
+    };
+  } catch (error) {
+    console.error('Auth check error:', error);
+    return { authenticated: false, error: error.message };
+  }
+}
+
+// Usage statistics functions
+async function getUsageStats(sendResponse) {
+  try {
+    const result = await getUsageStatsSync();
+    sendResponse(result);
+  } catch (error) {
+    console.error('Usage stats error:', error);
+    sendResponse({ error: error.message });
+  }
+}
+
+async function getUsageStatsSync() {
+  try {
+    const result = await chrome.storage.local.get(['stats']);
+    const stats = result.stats || { totalChecks: 0, todayChecks: 0, lastCheckDate: null };
+    
+    const today = new Date().toDateString();
+    
+    // Reset today's count if it's a new day
+    if (stats.lastCheckDate !== today) {
+      stats.todayChecks = 0;
+      stats.lastCheckDate = today;
+      await chrome.storage.local.set({ stats });
+    }
+    
+    return {
+      totalChecks: stats.totalChecks,
+      todayChecks: stats.todayChecks,
+      lastCheckDate: stats.lastCheckDate
+    };
+  } catch (error) {
+    console.error('Usage stats error:', error);
+    return { totalChecks: 0, todayChecks: 0, lastCheckDate: null };
   }
 }

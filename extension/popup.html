@@ -9,208 +9,297 @@
       width: 350px;
       min-height: 400px;
       margin: 0;
-      padding: 16px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #f8fafc;
-    }
-    
-    .container {
-      background: white;
-      border-radius: 12px;
       padding: 20px;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
     }
-    
-    h1 {
-      font-size: 20px;
-      font-weight: 600;
-      color: #1a202c;
-      margin: 0 0 8px 0;
-      text-align: center;
-    }
-    
-    .subtitle {
-      font-size: 14px;
-      color: #718096;
+
+    .header {
       text-align: center;
       margin-bottom: 20px;
     }
-    
-    #status {
-      padding: 12px;
-      border-radius: 8px;
-      margin-bottom: 16px;
+
+    .header h1 {
+      margin: 0;
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .header p {
+      margin: 5px 0 0 0;
+      opacity: 0.9;
       font-size: 14px;
-      font-weight: 500;
+    }
+
+    .main-content {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 20px;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .auth-section {
       text-align: center;
-      display: none;
     }
-    
-    #status.success {
-      background: #f0fff4;
-      color: #22543d;
-      border: 1px solid #9ae6b4;
-    }
-    
-    #status.error {
-      background: #fed7d7;
-      color: #742a2a;
-      border: 1px solid #feb2b2;
-    }
-    
-    #status.warning {
-      background: #fefcbf;
-      color: #744210;
-      border: 1px solid #f6e05e;
-    }
-    
-    #input {
-      width: 100%;
-      min-height: 100px;
-      padding: 12px;
-      border: 2px solid #e2e8f0;
-      border-radius: 8px;
-      font-size: 14px;
-      font-family: inherit;
-      resize: vertical;
-      margin-bottom: 16px;
-      box-sizing: border-box;
-    }
-    
-    #input:focus {
-      outline: none;
-      border-color: #667eea;
-      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-    }
-    
-    button {
-      width: 100%;
-      padding: 12px;
+
+    .login-btn {
+      background: #1da1f2;
+      color: white;
       border: none;
-      border-radius: 8px;
-      font-size: 14px;
+      padding: 12px 24px;
+      border-radius: 25px;
+      font-size: 16px;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.2s ease;
-      margin-bottom: 8px;
+      transition: all 0.3s ease;
+      width: 100%;
+      margin-bottom: 15px;
     }
-    
-    button:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
+
+    .login-btn:hover {
+      background: #0d8bd9;
+      transform: translateY(-2px);
     }
-    
-    .btn-primary {
-      background: linear-gradient(135deg, #667eea, #764ba2);
-      color: white;
-    }
-    
-    .btn-primary:hover:not(:disabled) {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-    }
-    
-    .btn-secondary {
-      background: #f7fafc;
-      color: #4a5568;
-      border: 2px solid #e2e8f0;
-    }
-    
-    .btn-secondary:hover:not(:disabled) {
-      background: #edf2f7;
-      border-color: #cbd5e0;
-    }
-    
-    .btn-success {
-      background: #48bb78;
-      color: white;
-    }
-    
-    .btn-success:hover:not(:disabled) {
-      background: #38a169;
-    }
-    
+
     .usage-info {
-      background: #f7fafc;
-      padding: 12px;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 15px;
       border-radius: 8px;
-      margin-bottom: 16px;
-      font-size: 14px;
+      margin-bottom: 15px;
       text-align: center;
+      font-size: 14px;
     }
-    
+
     .usage-info.pro {
-      background: #f0fff4;
-      color: #22543d;
+      background: rgba(34, 197, 94, 0.2);
+      border: 1px solid rgba(34, 197, 94, 0.3);
     }
-    
-    .hidden {
+
+    .fact-check-section {
       display: none;
     }
-    
-    .loading {
-      position: relative;
-      color: transparent;
+
+    .fact-check-section.active {
+      display: block;
     }
-    
-    .loading::after {
-      content: '';
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      width: 16px;
-      height: 16px;
-      margin: -8px 0 0 -8px;
-      border: 2px solid #f3f3f3;
-      border-top: 2px solid #667eea;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
+
+    .input-group {
+      margin-bottom: 15px;
     }
-    
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
+
+    .input-group label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+      font-size: 14px;
     }
-    
-    .result {
-      background: #f7fafc;
-      padding: 16px;
+
+    .input-group textarea {
+      width: 100%;
+      min-height: 80px;
+      padding: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
       border-radius: 8px;
-      margin-top: 16px;
+      background: rgba(255, 255, 255, 0.1);
+      color: white;
+      font-size: 14px;
+      resize: vertical;
+      box-sizing: border-box;
+    }
+
+    .input-group textarea::placeholder {
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .input-group textarea:focus {
+      outline: none;
+      border-color: #1da1f2;
+      box-shadow: 0 0 0 2px rgba(29, 161, 242, 0.2);
+    }
+
+    .btn {
+      background: #1da1f2;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 25px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      width: 100%;
+      margin-bottom: 10px;
+    }
+
+    .btn:hover:not(:disabled) {
+      background: #0d8bd9;
+      transform: translateY(-2px);
+    }
+
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn.secondary {
+      background: rgba(255, 255, 255, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .btn.secondary:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.3);
+    }
+
+    .upgrade-btn {
+      background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 25px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      width: 100%;
+      margin-bottom: 10px;
+    }
+
+    .upgrade-btn:hover {
+      background: linear-gradient(45deg, #ff5252, #d63031);
+      transform: translateY(-2px);
+    }
+
+    .result-section {
+      display: none;
+      margin-top: 20px;
+    }
+
+    .result-section.active {
+      display: block;
+    }
+
+    .result-content {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 15px;
+      border-radius: 8px;
       font-size: 14px;
       line-height: 1.5;
     }
-    
-    .result-title {
-      font-weight: 600;
-      margin-bottom: 8px;
-      color: #2d3748;
+
+    .status {
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      font-size: 14px;
+      text-align: center;
+      display: none;
+    }
+
+    .status.success {
+      background: rgba(34, 197, 94, 0.2);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      color: #22c55e;
+    }
+
+    .status.error {
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #ef4444;
+    }
+
+    .status.warning {
+      background: rgba(245, 158, 11, 0.2);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      color: #f59e0b;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top-color: white;
+      animation: spin 1s ease-in-out infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 20px;
+      font-size: 12px;
+      opacity: 0.7;
+    }
+
+    .footer a {
+      color: white;
+      text-decoration: none;
+    }
+
+    .footer a:hover {
+      text-decoration: underline;
     }
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="header">
     <h1>🔍 Fact Checker</h1>
-    <p class="subtitle">Verify social media posts with AI</p>
-    
-    <div id="status"></div>
-    
-    <div id="usage-info" class="usage-info">
-      Loading usage information...
+    <p>AI-powered social media verification</p>
+  </div>
+
+  <div class="main-content">
+    <!-- Authentication Section -->
+    <div class="auth-section" id="auth-section">
+      <button class="login-btn" id="login">Sign In to Start</button>
+      <div class="usage-info" id="usage-info">
+        Sign in to access fact checking features
+      </div>
     </div>
-    
-    <textarea id="input" placeholder="Paste a post to fact-check..."></textarea>
-    
-    <button id="login" class="btn btn-secondary">Sign in</button>
-    <button id="check" class="btn btn-primary hidden">Fact check</button>
-    <button id="upgrade" class="btn btn-success hidden">Upgrade to Pro</button>
-    
-    <div id="result" class="result hidden">
-      <div class="result-title">Fact Check Result:</div>
-      <div id="result-content"></div>
+
+    <!-- Fact Check Section -->
+    <div class="fact-check-section" id="fact-check-section">
+      <div class="usage-info" id="usage-info-authenticated">
+        Loading...
+      </div>
+      
+      <div class="input-group">
+        <label for="input">Enter text to fact-check:</label>
+        <textarea 
+          id="input" 
+          placeholder="Paste text from a social media post or enter your own text to verify..."
+          rows="4"
+        ></textarea>
+      </div>
+
+      <button class="btn" id="check">🔍 Fact Check</button>
+      <button class="upgrade-btn hidden" id="upgrade">⬆️ Upgrade to Pro</button>
+      <button class="btn secondary" id="logout">Sign Out</button>
+    </div>
+
+    <!-- Status Messages -->
+    <div class="status" id="status"></div>
+
+    <!-- Results Section -->
+    <div class="result-section" id="result-section">
+      <div class="result-content" id="result-content"></div>
     </div>
   </div>
-  
-  <script type="module" src="popup.js"></script>
+
+  <div class="footer">
+    <p>Powered by Google Gemini AI</p>
+    <p><a href="#" id="settings-link">Settings</a> | <a href="#" id="help-link">Help</a></p>
+  </div>
+
+  <script src="popup.js"></script>
 </body>
 </html>

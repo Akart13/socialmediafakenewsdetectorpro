@@ -2,19 +2,39 @@
   "manifest_version": 3,
   "name": "Social Media Fact Checker",
   "version": "1.0.0",
-  "description": "AI-powered fact-checking for social media posts",
+  "description": "AI-powered fact-checking for social media posts with Google Gemini 2.5 Flash",
   "action": { 
     "default_popup": "popup.html",
     "default_title": "Fact Checker"
   },
-  "permissions": ["tabs", "storage", "scripting"],
+  "permissions": ["tabs", "storage", "scripting", "activeTab"],
   "host_permissions": [
+    "https://twitter.com/*",
+    "https://x.com/*",
+    "https://instagram.com/*",
+    "https://facebook.com/*",
+    "https://generativelanguage.googleapis.com/*",
     "https://fact-checker-website-e8n29bn8e-amit-s-projects-3f01818e.vercel.app/*"
   ],
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://twitter.com/*",
+        "https://x.com/*",
+        "https://instagram.com/*",
+        "https://facebook.com/*"
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; base-uri 'self';"
