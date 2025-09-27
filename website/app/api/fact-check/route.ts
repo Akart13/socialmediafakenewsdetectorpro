@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-utils";
 import { withCors } from "@/lib/cors";
 import { db } from "@/lib/firebaseAdmin";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export const runtime = 'nodejs';
 
@@ -43,88 +42,128 @@ async function handler(req: NextRequest) {
       }, { merge: true });
     });
 
-    // Call Gemini (server-side key)
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    // Call Gemini API directly via REST (matching extension approach)
+    const sanitizedText = text.replace(/["\\]/g, '\\$&').substring(0, 2000);
     
     const prompt = `
-You are a fact-checking AI. Analyze this social media post and provide a comprehensive fact-check.
-
-Post Text: "${text.replace(/["\\]/g, '\\$&').substring(0, 2000)}"
-${images && images.length > 0 ? `Images: ${images.length} image(s) with extracted text` : ''}
-Platform: ${platform || 'unknown'}
-
-CRITICAL: You MUST respond with ONLY valid JSON. No markdown, no explanations outside the JSON, no code blocks. Just pure JSON.
-
-Extract 2-4 key factual claims from the post and fact-check each one. Use your knowledge to find credible sources and provide ratings.
-
-Respond with this EXACT JSON structure:
-{
-  "overallRating": 7,
-  "overallConfidence": 0.8,
-  "overallAssessment": "Likely True",
-  "overallExplanation": "Most claims are well-supported by evidence from authoritative sources",
-  "claims": [
+    Analyze this social media post and provide a comprehensive fact-check using real-time search results.
+    
+    Post Text: "${sanitizedText}"
+    ${images && images.length > 0 ? `Images: ${images.length} image(s) with extracted text` : ''}
+    
+    IMPORTANT: Use the search grounding results to verify claims with current, authoritative sources. 
+    Cite specific sources from the search results in your analysis.
+    
+    Please provide a complete fact-check analysis in this JSON format:
     {
-      "claim": "The unemployment rate in the US is 3.5%",
-      "rating": 8,
-      "confidence": 0.9,
-      "explanation": "This statistic is accurate according to recent BLS data",
-      "sources": [
+      "overallRating": 7,
+      "overallConfidence": 0.8,
+      "overallAssessment": "Likely True",
+      "overallExplanation": "Most claims are well-supported by evidence from authoritative sources",
+      "claims": [
         {
-          "url": "https://bls.gov/news.release/empsit.nr0.htm",
-          "title": "Bureau of Labor Statistics Employment Situation",
-          "credibilityScore": 10,
-          "relevanceScore": 10,
-          "summary": "Official government employment statistics",
-          "searchResult": true
+          "claim": "The unemployment rate in the US is 3.5%",
+          "rating": 8,
+          "confidence": 0.9,
+          "explanation": "This statistic is accurate according to recent BLS data found in search results",
+          "sources": [
+            {
+              "url": "https://bls.gov/news.release/empsit.nr0.htm",
+              "title": "Bureau of Labor Statistics Employment Situation",
+              "credibilityScore": 10,
+              "relevanceScore": 10,
+              "summary": "Official government employment statistics",
+              "searchResult": true
+            }
+          ],
+          "keyEvidence": ["Official BLS data", "Recent employment reports"],
+          "groundingUsed": true
         }
       ],
-      "keyEvidence": ["Official BLS data", "Recent employment reports"],
-      "groundingUsed": true
+      "searchMetadata": {
+        "sourcesFound": 3,
+        "authoritativeSources": 2,
+        "searchQueries": ["unemployment rate 2024", "BLS employment data"]
+      }
     }
-  ],
-  "searchMetadata": {
-    "sourcesFound": 3,
-    "authoritativeSources": 2,
-    "searchQueries": ["unemployment rate 2024", "BLS employment data"]
-  }
-}
+    
+    Focus on:
+    1. Extract 2-4 most important factual claims
+    2. Use search results to find credible, current sources
+    3. Rate each claim's credibility (1-10) based on source quality
+    4. Provide clear explanations with source citations
+    5. Note when grounding/search results were used
+    6. Keep it concise but thorough
+  `;
 
-Guidelines:
-- overallRating: 1-10 (1=completely false, 10=completely true)
-- overallConfidence: 0.0-1.0 (0.0=no confidence, 1.0=complete confidence)
-- overallAssessment: "True", "Likely True", "Mixed", "Likely False", "False", "Unverifiable"
-- For each claim: rating 1-10, confidence 0.0-1.0, explanation with sources
-- Sources: real URLs when possible, credible titles, scores 1-10
-- keyEvidence: array of key supporting/contradicting evidence
-- groundingUsed: true if you used search/grounding, false otherwise
+    // Direct REST API call to Gemini with grounding support (matching extension)
+    const geminiResponse = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: prompt
+            }]
+          }],
+          generationConfig: {
+            temperature: 0.1,
+            topK: 1,
+            topP: 0.8,
+            maxOutputTokens: 2048,
+          },
+          // Enable search grounding for fact-checking (matching extension)
+          tools: [{
+            googleSearch: {}
+          }]
+        })
+      }
+    );
 
-Remember: Respond with ONLY the JSON object, nothing else.
-    `;
+    if (!geminiResponse.ok) {
+      throw new Error(`Gemini API error: ${geminiResponse.status} ${geminiResponse.statusText}`);
+    }
 
-    const result = await model.generateContent([
-      { text: prompt }
-    ]);
+    const geminiData = await geminiResponse.json();
+    
+    if (!geminiData.candidates || !geminiData.candidates[0] || !geminiData.candidates[0].content) {
+      throw new Error('Invalid response from Gemini API');
+    }
+
+    // Extract text content and grounding metadata (matching extension approach)
+    const candidate = geminiData.candidates[0];
+    let responseText = '';
+    let groundingMetadata = null;
+    
+    // Extract text content from the response
+    if (candidate.content && candidate.content.parts) {
+      responseText = candidate.content.parts
+        .filter((part: any) => part.text)
+        .map((part: any) => part.text)
+        .join(' ');
+    }
+    
+    // Extract grounding metadata if available
+    if (candidate.groundingMetadata) {
+      groundingMetadata = candidate.groundingMetadata;
+    }
+
+    const result = {
+      response: {
+        text: () => responseText
+      },
+      groundingMetadata: groundingMetadata
+    };
 
     const response = result.response;
     let textContent = response.text();
 
-    // Clean up the response text to extract JSON
-    textContent = textContent.trim();
-    
-    // Remove markdown code blocks if present
-    if (textContent.startsWith('```json')) {
-      textContent = textContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    } else if (textContent.startsWith('```')) {
-      textContent = textContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
-    }
-    
-    // Try to extract JSON from the response
-    let jsonMatch = textContent.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      textContent = jsonMatch[0];
-    }
+    // Clean up the response text to extract JSON (matching extension approach)
+    textContent = cleanJsonResponse(textContent);
 
     // Parse and validate the response
     let factCheckData;
@@ -250,6 +289,78 @@ Remember: Respond with ONLY the JSON object, nothing else.
     
     console.error('Fact check error:', error);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
+}
+
+function cleanJsonResponse(response: string): string {
+  // Remove markdown code blocks and clean up the response
+  let cleaned = response.trim();
+  
+  // Remove ```json and ``` markers
+  cleaned = cleaned.replace(/^```json\s*/i, '');
+  cleaned = cleaned.replace(/```\s*$/i, '');
+  cleaned = cleaned.replace(/^```\s*/i, '');
+  
+  // Remove any leading/trailing whitespace
+  cleaned = cleaned.trim();
+  
+  // If the response doesn't start with [ or {, try to find the JSON part
+  if (!cleaned.startsWith('[') && !cleaned.startsWith('{')) {
+    const jsonMatch = cleaned.match(/(\[[\s\S]*\]|\{[\s\S]*\})/);
+    if (jsonMatch) {
+      cleaned = jsonMatch[1];
+    }
+  }
+  
+  // Additional cleaning for common JSON issues
+  try {
+    // Try to parse and re-stringify to validate and clean
+    const parsed = JSON.parse(cleaned);
+    return JSON.stringify(parsed);
+  } catch (error) {
+    // If parsing fails, try to fix common issues
+    console.warn('JSON parsing failed, attempting to fix:', error);
+    
+    // Fix common issues:
+    // 1. Unescaped quotes in strings
+    cleaned = cleaned.replace(/([^\\])"([^"]*)"([^,}\]]*)/g, (match, before, content, after) => {
+      // Only fix if it looks like an unescaped quote in a string value
+      if (before.match(/[:\s]/) && after.match(/[,}\]]/)) {
+        const escapedContent = content.replace(/"/g, '\\"');
+        return `${before}"${escapedContent}"${after}`;
+      }
+      return match;
+    });
+    
+    // 2. Remove trailing commas
+    cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
+    
+    // 3. Fix missing quotes around keys
+    cleaned = cleaned.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
+    
+    // 4. Remove any non-JSON content that might be mixed in
+    const lines = cleaned.split('\n');
+    const jsonLines = [];
+    let inJson = false;
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+        inJson = true;
+      }
+      if (inJson) {
+        jsonLines.push(line);
+        if (trimmed.endsWith(']') || trimmed.endsWith('}')) {
+          break;
+        }
+      }
+    }
+    
+    if (jsonLines.length > 0) {
+      cleaned = jsonLines.join('\n');
+    }
+    
+    return cleaned;
   }
 }
 
