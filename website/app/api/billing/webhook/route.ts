@@ -35,19 +35,15 @@ export async function POST(request: NextRequest) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
         const uid = session.metadata?.uid;
-        const mode = session.metadata?.mode;
         
         if (uid && session.customer) {
-          // Determine the customer field based on mode
-          const isTestMode = mode === 'test' || process.env.STRIPE_SECRET?.startsWith('sk_test_');
-          const customerField = isTestMode ? 'stripe.test.customerId' : 'stripe.live.customerId';
-          
-          // Update user with plan and ensure customer ID is saved
-          await db.collection('users').doc(uid).update({
+          const customerId = session.customer as string;
+          await db.collection('users').doc(uid).set({
             plan: 'pro',
-            [customerField]: session.customer,
+            stripeCustomerId: customerId,
+            subscriptionStatus: 'active',
             updatedAt: new Date()
-          });
+          }, { merge: true });
         }
         break;
       }
@@ -56,25 +52,16 @@ export async function POST(request: NextRequest) {
       case 'customer.subscription.deleted': {
         const subscription = event.data.object as Stripe.Subscription;
         const customerId = subscription.customer as string;
+        const status = subscription.status;
         
-        // Determine if this is a test or live customer
-        const isTestMode = process.env.STRIPE_SECRET?.startsWith('sk_test_');
-        const customerField = isTestMode ? 'stripe.test.customerId' : 'stripe.live.customerId';
-        
-        // Find user by the appropriate Stripe customer ID field
-        const usersSnapshot = await db.collection('users')
-          .where(customerField, '==', customerId)
-          .limit(1)
-          .get();
-        
-        if (!usersSnapshot.empty) {
-          const userDoc = usersSnapshot.docs[0];
-          const plan = subscription.status === 'active' ? 'pro' : 'free';
-          
-          await userDoc.ref.update({
-            plan,
+        // Look up uid by customerId
+        const snap = await db.collection('users').where('stripeCustomerId', '==', customerId).limit(1).get();
+        if (!snap.empty) {
+          await snap.docs[0].ref.set({
+            plan: status === 'active' ? 'pro' : 'free',
+            subscriptionStatus: status,
             updatedAt: new Date()
-          });
+          }, { merge: true });
         }
         break;
       }

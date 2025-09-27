@@ -48,30 +48,28 @@ export default function AuthPage() {
         const state = urlParams.get('state');
         const source = urlParams.get('source');
         
-        if (source === 'extension' && state) {
-          // This is an extension login, create app JWT and store it
+        if (source === 'extension') {
+          // This is an extension login, use the new finalize endpoint
           try {
             const idToken = await user.getIdToken();
-            const response = await fetch('/api/ext/auth', {
+            const response = await fetch('/api/auth/finalize', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${idToken}`
               },
-              body: JSON.stringify({ state })
+              credentials: 'include' // Important for setting refresh cookie
             });
             
             if (response.ok) {
-              const { appToken } = await response.json();
+              const { access } = await response.json();
               
-              // Store the app token in localStorage so the extension can find it
-              localStorage.setItem('ext_auth_token', appToken);
-              localStorage.setItem('ext_auth_state', state);
-              
-              // Show success message
-              setMessage({ type: 'success', text: 'Successfully signed in! You can close this tab and return to the extension.' });
+              // Redirect back to extension with token
+              const redirectUrl = new URL(window.location.href);
+              redirectUrl.searchParams.set('token', access);
+              window.location.replace(redirectUrl.toString());
             } else {
-              throw new Error('Failed to create app token');
+              throw new Error('Failed to finalize authentication');
             }
           } catch (error) {
             console.error('Extension auth error:', error);

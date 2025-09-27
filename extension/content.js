@@ -52,15 +52,11 @@ class SocialMediaExtractor {
   }
 
   addFactCheckButtons() {
-    // Add buttons to existing posts
-    this.addButtonsToPosts();
-  }
-
-  addButtonsToPosts() {
+    // Add fact-check buttons to posts
     const posts = this.getPosts();
     posts.forEach(post => {
       if (!post.querySelector('.fact-check-btn')) {
-        this.addButtonToPost(post);
+        this.addFactCheckButton(post);
       }
     });
   }
@@ -68,17 +64,17 @@ class SocialMediaExtractor {
   getPosts() {
     switch (this.platform) {
       case 'twitter':
-        return Array.from(document.querySelectorAll('[data-testid="tweet"]'));
+        return document.querySelectorAll('[data-testid="tweet"]');
       case 'instagram':
-        return Array.from(document.querySelectorAll('article'));
+        return document.querySelectorAll('article');
       case 'facebook':
-        return Array.from(document.querySelectorAll('[data-pagelet="FeedUnit_0"]'));
+        return document.querySelectorAll('[data-pagelet="FeedUnit_0"]');
       default:
         return [];
     }
   }
 
-  addButtonToPost(post) {
+  addFactCheckButton(post) {
     const button = document.createElement('button');
     button.className = 'fact-check-btn';
     button.innerHTML = '🔍 Fact Check';
@@ -86,10 +82,9 @@ class SocialMediaExtractor {
       background: #1da1f2;
       color: white;
       border: none;
-      padding: 8px 16px;
+      padding: 6px 12px;
       border-radius: 20px;
-      font-size: 14px;
-      font-weight: bold;
+      font-size: 12px;
       cursor: pointer;
       margin: 8px 0;
       font-weight: bold;
@@ -109,11 +104,11 @@ class SocialMediaExtractor {
   getButtonContainer(post) {
     switch (this.platform) {
       case 'twitter':
-        return post.querySelector('[role="group"]');
+        return post.querySelector('[role="group"]') || post.querySelector('[data-testid="reply"]')?.parentElement;
       case 'instagram':
-        return post.querySelector('header');
+        return post.querySelector('section > div:last-child');
       case 'facebook':
-        return post.querySelector('[data-testid="post_message"]')?.parentElement;
+        return post.querySelector('[role="button"][aria-label*="Like"]')?.parentElement;
       default:
         return post;
     }
@@ -272,8 +267,75 @@ class SocialMediaExtractor {
     const overlay = document.createElement('div');
     overlay.className = 'fact-check-overlay';
     
-    // Build the results HTML
-    let resultsHTML = `
+    // Overall rating
+    const overallRating = results.overallRating;
+    const ratingClass = overallRating.rating >= 7 ? 'rating-high' : 
+                       overallRating.rating >= 4 ? 'rating-medium' : 'rating-low';
+    
+    // Build claims HTML
+    let claimsHtml = '';
+    if (results.claims && results.claims.length > 0) {
+      claimsHtml = results.claims.map((claim, index) => {
+        const claimRating = claim.credibilityRating;
+        const claimRatingClass = claimRating.rating >= 7 ? 'rating-high' : 
+                                claimRating.rating >= 4 ? 'rating-medium' : 'rating-low';
+        
+        let sourcesHtml = '';
+        if (claim.sources && claim.sources.length > 0) {
+          sourcesHtml = `
+            <div class="claim-sources">
+              <div class="sources-title">
+                📚 Sources (${claim.sources.length})
+              </div>
+              ${claim.sources.map(source => `
+                <div class="source-item" onclick="window.open('${source.url}', '_blank')" title="Click to open source">
+                  <div class="source-header">
+                    <a href="${source.url}" target="_blank" rel="noopener" class="source-title-link" onclick="event.stopPropagation()">
+                      <div class="source-title">${source.title}</div>
+                    </a>
+                    <div class="source-scores">
+                      <div class="source-score">
+                        <span>📊</span>
+                        <span>${source.credibilityScore}/10</span>
+                      </div>
+                      <div class="source-score">
+                        <span>🎯</span>
+                        <span>${source.relevanceScore}/10</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="source-url-container">
+                    <a href="${source.url}" target="_blank" rel="noopener" class="source-url" title="Click to open full URL" onclick="event.stopPropagation()">${source.url}</a>
+                    <span class="source-link-indicator">🔗</span>
+                  </div>
+                  ${source.summary ? `<div class="source-summary">${source.summary}</div>` : ''}
+                </div>
+              `).join('')}
+            </div>
+          `;
+        }
+        
+        return `
+          <div class="claim-item" data-claim-index="${index}">
+            <div class="claim-header" data-expandable="true">
+              <div class="claim-text">${claim.claim}</div>
+              <div class="claim-rating-badge ${claimRatingClass}">
+                ${claimRating.rating}/10
+              </div>
+              <div class="claim-expand-icon">▼</div>
+            </div>
+            <div class="claim-content">
+              <div class="claim-explanation">
+                <strong>Assessment:</strong> ${claimRating.explanation}
+              </div>
+              ${sourcesHtml}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+    
+    overlay.innerHTML = `
       <div class="fact-check-modal">
         <div class="fact-check-header">
           <div class="fact-check-title">
@@ -282,107 +344,258 @@ class SocialMediaExtractor {
           <button class="fact-check-close" data-close="true">×</button>
         </div>
         <div class="fact-check-content">
-          <div class="overall-rating">
-            <div class="rating-score">
-              ${Math.round(results.overallRating.rating * 10)}%
+          <div class="overall-rating-section">
+            <div class="overall-rating-header">
+              <div class="overall-rating-title">Overall Assessment</div>
+              <div class="overall-rating-badge ${ratingClass}">
+                ${overallRating.rating}/10 - ${overallRating.assessment}
+              </div>
             </div>
-            <div class="rating-label">${results.overallRating.assessment}</div>
-            <div class="rating-explanation">
-              ${results.overallRating.explanation}
+            <div class="overall-rating-details">
+              <div class="rating-metric">
+                <div class="rating-metric-value">${overallRating.rating}</div>
+                <div class="rating-metric-label">Credibility Score</div>
+              </div>
+              <div class="rating-metric">
+                <div class="rating-metric-value">${Math.round(overallRating.confidence * 100)}%</div>
+                <div class="rating-metric-label">Confidence</div>
+              </div>
+            </div>
+            <div class="overall-explanation">
+              ${overallRating.explanation}
             </div>
           </div>
-    `;
-
-    // Add individual claims if available
-    if (results.claims && results.claims.length > 0) {
-      resultsHTML += `
-        <div class="claims-section">
-          <h3>Individual Claims Analysis</h3>
-      `;
-      
-      results.claims.forEach((claim, index) => {
-        resultsHTML += `
-          <div class="claim-item">
-            <div class="claim-text">${claim.claim}</div>
-            <div class="claim-rating">
-              <span class="claim-score">${Math.round(claim.credibilityRating.rating * 10)}%</span>
-              <span class="claim-confidence">Confidence: ${Math.round(claim.credibilityRating.confidence * 100)}%</span>
+          
+          <div class="claims-section">
+            <div class="claims-header">
+              📋 Individual Claims (${results.claims ? results.claims.length : 0})
             </div>
-            <div class="claim-explanation">${claim.credibilityRating.explanation}</div>
-        `;
-        
-        // Add sources if available
-        if (claim.sources && claim.sources.length > 0) {
-          resultsHTML += `
-            <div class="sources">
-              <h4>Sources:</h4>
-              <ul>
-          `;
-          claim.sources.forEach(source => {
-            resultsHTML += `
-              <li>
-                <a href="${source.url}" target="_blank" rel="noopener noreferrer">
-                  ${source.title}
-                </a>
-                <span class="source-scores">
-                  (Credibility: ${source.credibilityScore}/10, Relevance: ${source.relevanceScore}/10)
-                </span>
-                <div class="source-summary">${source.summary}</div>
-              </li>
-            `;
-          });
-          resultsHTML += `
-              </ul>
-            </div>
-          `;
-        }
-        
-        resultsHTML += `
+            ${claimsHtml}
           </div>
-        `;
-      });
-      
-      resultsHTML += `
-        </div>
-      `;
-    }
-
-    resultsHTML += `
         </div>
       </div>
     `;
 
-    overlay.innerHTML = resultsHTML;
+    // Add to document
     document.body.appendChild(overlay);
 
     // Add event listeners for interactive elements
-    this.addOverlayEventListeners(overlay);
+    this.setupOverlayEventListeners(overlay);
   }
 
-  addOverlayEventListeners(overlay) {
-    // Close button
-    const closeBtn = overlay.querySelector('.fact-check-close');
-    if (closeBtn) {
-      closeBtn.addEventListener('click', () => {
+  setupOverlayEventListeners(overlay) {
+    // Close button functionality
+    const closeButton = overlay.querySelector('[data-close="true"]');
+    if (closeButton) {
+      closeButton.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log('Close button clicked');
         overlay.remove();
       });
     }
 
-    // Click outside to close
+    // Expandable claims functionality
+    const claimHeaders = overlay.querySelectorAll('[data-expandable="true"]');
+    console.log(`Found ${claimHeaders.length} expandable claim headers`);
+    claimHeaders.forEach((header, index) => {
+      header.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log(`Claim header ${index} clicked`);
+        const claimItem = header.closest('.claim-item');
+        if (claimItem) {
+          claimItem.classList.toggle('claim-expanded');
+          console.log('Claim expanded/collapsed');
+        }
+      });
+    });
+
+    // Close on overlay click (but not modal click)
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) {
+        console.log('Overlay background clicked');
         overlay.remove();
       }
     });
 
-    // Escape key to close
-    const handleKeyPress = (e) => {
+    // Close on Escape key
+    const handleEscape = (e) => {
       if (e.key === 'Escape') {
+        console.log('Escape key pressed');
         overlay.remove();
-        document.removeEventListener('keydown', handleKeyPress);
+        document.removeEventListener('keydown', handleEscape);
       }
     };
-    document.addEventListener('keydown', handleKeyPress);
+    document.addEventListener('keydown', handleEscape);
+  }
+
+  createOverallRating(rating) {
+    const container = document.createElement('div');
+    container.style.cssText = `
+      margin-bottom: 16px;
+      padding: 12px;
+      border-radius: 8px;
+      text-align: center;
+    `;
+
+    const color = this.getRatingColor(rating.rating);
+    container.style.backgroundColor = color.background;
+    container.style.border = `2px solid ${color.border}`;
+
+    const ratingText = document.createElement('div');
+    ratingText.style.cssText = `
+      font-size: 18px;
+      font-weight: bold;
+      color: ${color.text};
+      margin-bottom: 4px;
+    `;
+    ratingText.textContent = `${rating.assessment} (${rating.rating}/10)`;
+
+    const confidenceText = document.createElement('div');
+    confidenceText.style.cssText = `
+      font-size: 12px;
+      color: #666;
+    `;
+    confidenceText.textContent = `Confidence: ${Math.round(rating.confidence * 100)}%`;
+
+    const explanationText = document.createElement('div');
+    explanationText.style.cssText = `
+      font-size: 12px;
+      color: #666;
+      margin-top: 4px;
+    `;
+    explanationText.textContent = rating.explanation;
+
+    container.appendChild(ratingText);
+    container.appendChild(confidenceText);
+    container.appendChild(explanationText);
+
+    return container;
+  }
+
+  createClaimsSection(claims) {
+    const container = document.createElement('div');
+    container.style.cssText = `
+      border-top: 1px solid #e1e8ed;
+      padding-top: 16px;
+    `;
+
+    const title = document.createElement('h4');
+    title.style.cssText = `
+      margin: 0 0 12px 0;
+      font-size: 14px;
+      font-weight: bold;
+      color: #333;
+    `;
+    title.textContent = 'Individual Claims:';
+
+    container.appendChild(title);
+
+    claims.forEach((claimData, index) => {
+      const claimElement = this.createClaimElement(claimData, index);
+      container.appendChild(claimElement);
+    });
+
+    return container;
+  }
+
+  createClaimElement(claimData, index) {
+    const container = document.createElement('div');
+    container.style.cssText = `
+      margin-bottom: 12px;
+      padding: 12px;
+      border: 1px solid #e1e8ed;
+      border-radius: 8px;
+      background: white;
+    `;
+
+    const claimText = document.createElement('div');
+    claimText.style.cssText = `
+      font-weight: bold;
+      margin-bottom: 8px;
+      color: #333;
+    `;
+    claimText.textContent = `Claim ${index + 1}: ${claimData.claim}`;
+
+    const rating = document.createElement('div');
+    rating.style.cssText = `
+      font-size: 12px;
+      margin-bottom: 8px;
+    `;
+    const color = this.getRatingColor(claimData.credibilityRating.rating);
+    rating.innerHTML = `
+      <span style="color: ${color.text}; font-weight: bold;">
+        Rating: ${claimData.credibilityRating.rating}/10
+      </span>
+      <span style="color: #666; margin-left: 8px;">
+        Confidence: ${Math.round(claimData.credibilityRating.confidence * 100)}%
+      </span>
+    `;
+
+    const explanation = document.createElement('div');
+    explanation.style.cssText = `
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 8px;
+    `;
+    explanation.textContent = claimData.credibilityRating.explanation;
+
+    const sources = document.createElement('div');
+    sources.style.cssText = `
+      font-size: 11px;
+    `;
+    sources.innerHTML = `
+      <strong>Sources (${claimData.sources.length}):</strong>
+      <ul style="margin: 4px 0; padding-left: 16px;">
+        ${claimData.sources.map(source => `
+          <li style="margin-bottom: 8px;">
+            <a href="${source.url}" target="_blank" style="color: #1da1f2; text-decoration: none; font-weight: 600; display: block; margin-bottom: 2px;" title="Click to open: ${source.url}">
+              🔗 ${source.title}
+            </a>
+            <div style="color: #666; font-size: 11px; margin-left: 20px;">
+              <a href="${source.url}" target="_blank" style="color: #888; text-decoration: underline; word-break: break-all;" title="Full URL: ${source.url}">
+                ${source.url}
+              </a>
+              <br>
+              <span style="color: #999;">
+                (Credibility: ${source.credibilityScore}/10, Relevance: ${source.relevanceScore}/10)
+              </span>
+            </div>
+          </li>
+        `).join('')}
+      </ul>
+    `;
+
+    container.appendChild(claimText);
+    container.appendChild(rating);
+    container.appendChild(explanation);
+    container.appendChild(sources);
+
+    return container;
+  }
+
+  getRatingColor(rating) {
+    if (rating >= 7) {
+      return { background: '#d4edda', border: '#28a745', text: '#155724' };
+    } else if (rating <= 3) {
+      return { background: '#f8d7da', border: '#dc3545', text: '#721c24' };
+    } else {
+      return { background: '#fff3cd', border: '#ffc107', text: '#856404' };
+    }
+  }
+
+  getResultsInsertPoint(post) {
+    switch (this.platform) {
+      case 'twitter':
+        return post.querySelector('[data-testid="reply"]')?.parentElement || post;
+      case 'instagram':
+        return post.querySelector('section > div:last-child') || post;
+      case 'facebook':
+        return post.querySelector('[role="button"][aria-label*="Like"]')?.parentElement || post;
+      default:
+        return post;
+    }
   }
 
   showError(post, message) {
@@ -394,8 +607,6 @@ class SocialMediaExtractor {
 
     // Special handling for context invalidation errors
     const isContextError = message.includes('Extension context invalidated');
-    const isAuthError = message.includes('Please sign in') || message.includes('authentication');
-    const isLimitError = message.includes('Daily limit reached') || message.includes('limit reached');
     
     // Create overlay
     const overlay = document.createElement('div');
@@ -416,43 +627,6 @@ class SocialMediaExtractor {
               <p>The extension has been updated and needs to be refreshed to continue working properly.</p>
               <p>Please refresh this page to continue using the fact checker.</p>
               <button class="refresh-btn" onclick="window.location.reload()">Refresh Page</button>
-            </div>
-          </div>
-        </div>
-      `;
-    } else if (isAuthError) {
-      overlay.innerHTML = `
-        <div class="fact-check-modal">
-          <div class="fact-check-header">
-            <div class="fact-check-title">
-              🔐 Sign In Required
-            </div>
-            <button class="fact-check-close" data-close="true">×</button>
-          </div>
-          <div class="fact-check-content">
-            <div class="fact-check-error auth-required">
-              <h4>Please sign in to use the fact checker</h4>
-              <p>You need to sign in to your account to use the fact checking feature.</p>
-              <p>Click the extension icon in your browser toolbar to sign in.</p>
-            </div>
-          </div>
-        </div>
-      `;
-    } else if (isLimitError) {
-      overlay.innerHTML = `
-        <div class="fact-check-modal">
-          <div class="fact-check-header">
-            <div class="fact-check-title">
-              📊 Daily Limit Reached
-            </div>
-            <button class="fact-check-close" data-close="true">×</button>
-          </div>
-          <div class="fact-check-content">
-            <div class="fact-check-error limit-reached">
-              <h4>Daily fact check limit reached</h4>
-              <p>You've used all your free daily fact checks.</p>
-              <p>Upgrade to Pro for unlimited fact checks!</p>
-              <button class="upgrade-btn" onclick="chrome.runtime.openOptionsPage()">Upgrade to Pro</button>
             </div>
           </div>
         </div>
@@ -481,95 +655,62 @@ class SocialMediaExtractor {
     document.body.appendChild(overlay);
 
     // Add event listeners for interactive elements
-    this.addOverlayEventListeners(overlay);
+    this.setupOverlayEventListeners(overlay);
+
+    // Auto-close after timeout (longer for context errors)
+    const timeout = isContextError ? 15000 : 8000;
+    setTimeout(() => {
+      if (overlay.parentNode) {
+        overlay.remove();
+      }
+    }, timeout);
   }
 
   observePageChanges() {
-    // Use MutationObserver to detect new posts
+    // Use MutationObserver to handle dynamic content loading
     const observer = new MutationObserver((mutations) => {
+      let shouldUpdate = false;
+      
       mutations.forEach((mutation) => {
-        if (mutation.type === 'childList') {
+        if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
           mutation.addedNodes.forEach((node) => {
             if (node.nodeType === Node.ELEMENT_NODE) {
-              // Check if this is a new post
-              const posts = this.getPosts();
-              posts.forEach(post => {
-                if (!post.querySelector('.fact-check-btn')) {
-                  this.addButtonToPost(post);
-                }
-              });
+              const posts = node.querySelectorAll ? 
+                node.querySelectorAll(this.getPostSelector()) : [];
+              if (posts.length > 0) {
+                shouldUpdate = true;
+              }
             }
           });
         }
       });
+      
+      if (shouldUpdate) {
+        setTimeout(() => this.addFactCheckButtons(), 1000);
+      }
     });
 
-    // Start observing
     observer.observe(document.body, {
       childList: true,
       subtree: true
     });
   }
-}
 
-// Image text extraction class
-class ImageTextExtractor {
-  async extractTextFromImages(images) {
-    const results = [];
-    
-    for (const image of images) {
-      try {
-        const text = await this.extractTextFromImage(image);
-        if (text) {
-          results.push({
-            src: image.src,
-            extractedText: text
-          });
-        }
-      } catch (error) {
-        console.warn('Failed to extract text from image:', error);
-      }
+  getPostSelector() {
+    switch (this.platform) {
+      case 'twitter':
+        return '[data-testid="tweet"]';
+      case 'instagram':
+        return 'article';
+      case 'facebook':
+        return '[data-pagelet="FeedUnit_0"]';
+      default:
+        return '';
     }
-    
-    return results;
-  }
-
-  async extractTextFromImage(image) {
-    return new Promise((resolve, reject) => {
-      // Create a canvas to process the image
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      
-      img.onload = () => {
-        try {
-          // Set canvas dimensions
-          canvas.width = img.width;
-          canvas.height = img.height;
-          
-          // Draw image to canvas
-          ctx.drawImage(img, 0, 0);
-          
-          // For now, we'll just return a placeholder
-          // In a real implementation, you'd use OCR or AI vision
-          resolve('Image text extraction not implemented in this demo');
-        } catch (error) {
-          reject(error);
-        }
-      };
-      
-      img.onerror = () => {
-        reject(new Error('Failed to load image'));
-      };
-      
-      img.src = image.src;
-    });
   }
 }
 
-// Initialize the extension when the page loads
+// Initialize the extractor when the page loads
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
     new SocialMediaExtractor();
