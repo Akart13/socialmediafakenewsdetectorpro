@@ -267,18 +267,18 @@ class SocialMediaExtractor {
     const overlay = document.createElement('div');
     overlay.className = 'fact-check-overlay';
     
-    // Overall rating
-    const overallRating = results.overallRating;
-    const ratingClass = overallRating.rating >= 7 ? 'rating-high' : 
-                       overallRating.rating >= 4 ? 'rating-medium' : 'rating-low';
+    // Overall rating with null checks
+    const overallRating = results.overallRating || { rating: 5, confidence: 0.5, assessment: "Uncertain", explanation: "Analysis incomplete" };
+    const ratingClass = (overallRating.rating || 5) >= 7 ? 'rating-high' : 
+                       (overallRating.rating || 5) >= 4 ? 'rating-medium' : 'rating-low';
     
     // Build claims HTML
     let claimsHtml = '';
     if (results.claims && results.claims.length > 0) {
       claimsHtml = results.claims.map((claim, index) => {
-        const claimRating = claim.credibilityRating;
-        const claimRatingClass = claimRating.rating >= 7 ? 'rating-high' : 
-                                claimRating.rating >= 4 ? 'rating-medium' : 'rating-low';
+        const claimRating = claim.credibilityRating || { rating: 5, confidence: 0.5, explanation: "No analysis available", keyEvidence: [], groundingUsed: false };
+        const claimRatingClass = (claimRating.rating || 5) >= 7 ? 'rating-high' : 
+                                (claimRating.rating || 5) >= 4 ? 'rating-medium' : 'rating-low';
         
         let sourcesHtml = '';
         if (claim.sources && claim.sources.length > 0) {
@@ -287,30 +287,39 @@ class SocialMediaExtractor {
               <div class="sources-title">
                 📚 Sources (${claim.sources.length})
               </div>
-              ${claim.sources.map(source => `
-                <div class="source-item" onclick="window.open('${source.url}', '_blank')" title="Click to open source">
-                  <div class="source-header">
-                    <a href="${source.url}" target="_blank" rel="noopener" class="source-title-link" onclick="event.stopPropagation()">
-                      <div class="source-title">${source.title}</div>
-                    </a>
-                    <div class="source-scores">
-                      <div class="source-score">
-                        <span>📊</span>
-                        <span>${source.credibilityScore}/10</span>
-                      </div>
-                      <div class="source-score">
-                        <span>🎯</span>
-                        <span>${source.relevanceScore}/10</span>
+              ${claim.sources.map(source => {
+                const safeSource = {
+                  url: source.url || "#",
+                  title: source.title || "Untitled Source",
+                  credibilityScore: source.credibilityScore || 5,
+                  relevanceScore: source.relevanceScore || 5,
+                  summary: source.summary || ""
+                };
+                return `
+                  <div class="source-item" onclick="window.open('${safeSource.url}', '_blank')" title="Click to open source">
+                    <div class="source-header">
+                      <a href="${safeSource.url}" target="_blank" rel="noopener" class="source-title-link" onclick="event.stopPropagation()">
+                        <div class="source-title">${safeSource.title}</div>
+                      </a>
+                      <div class="source-scores">
+                        <div class="source-score">
+                          <span>📊</span>
+                          <span>${safeSource.credibilityScore}/10</span>
+                        </div>
+                        <div class="source-score">
+                          <span>🎯</span>
+                          <span>${safeSource.relevanceScore}/10</span>
+                        </div>
                       </div>
                     </div>
+                    <div class="source-url-container">
+                      <a href="${safeSource.url}" target="_blank" rel="noopener" class="source-url" title="Click to open full URL" onclick="event.stopPropagation()">${safeSource.url}</a>
+                      <span class="source-link-indicator">🔗</span>
+                    </div>
+                    ${safeSource.summary ? `<div class="source-summary">${safeSource.summary}</div>` : ''}
                   </div>
-                  <div class="source-url-container">
-                    <a href="${source.url}" target="_blank" rel="noopener" class="source-url" title="Click to open full URL" onclick="event.stopPropagation()">${source.url}</a>
-                    <span class="source-link-indicator">🔗</span>
-                  </div>
-                  ${source.summary ? `<div class="source-summary">${source.summary}</div>` : ''}
-                </div>
-              `).join('')}
+                `;
+              }).join('')}
             </div>
           `;
         }
@@ -318,15 +327,15 @@ class SocialMediaExtractor {
         return `
           <div class="claim-item" data-claim-index="${index}">
             <div class="claim-header" data-expandable="true">
-              <div class="claim-text">${claim.claim}</div>
+              <div class="claim-text">${claim.claim || "Unable to analyze claim"}</div>
               <div class="claim-rating-badge ${claimRatingClass}">
-                ${claimRating.rating}/10
+                ${claimRating.rating || 5}/10
               </div>
               <div class="claim-expand-icon">▼</div>
             </div>
             <div class="claim-content">
               <div class="claim-explanation">
-                <strong>Assessment:</strong> ${claimRating.explanation}
+                <strong>Assessment:</strong> ${claimRating.explanation || "No assessment available"}
               </div>
               ${sourcesHtml}
             </div>
@@ -348,21 +357,21 @@ class SocialMediaExtractor {
             <div class="overall-rating-header">
               <div class="overall-rating-title">Overall Assessment</div>
               <div class="overall-rating-badge ${ratingClass}">
-                ${overallRating.rating}/10 - ${overallRating.assessment}
+                ${overallRating.rating || 5}/10 - ${overallRating.assessment || "Uncertain"}
               </div>
             </div>
             <div class="overall-rating-details">
               <div class="rating-metric">
-                <div class="rating-metric-value">${overallRating.rating}</div>
+                <div class="rating-metric-value">${overallRating.rating || 5}</div>
                 <div class="rating-metric-label">Credibility Score</div>
               </div>
               <div class="rating-metric">
-                <div class="rating-metric-value">${Math.round(overallRating.confidence * 100)}%</div>
+                <div class="rating-metric-value">${Math.round((overallRating.confidence || 0.5) * 100)}%</div>
                 <div class="rating-metric-label">Confidence</div>
               </div>
             </div>
             <div class="overall-explanation">
-              ${overallRating.explanation}
+              ${overallRating.explanation || "No explanation available"}
             </div>
           </div>
           
