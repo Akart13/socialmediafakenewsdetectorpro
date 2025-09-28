@@ -323,55 +323,158 @@ function cleanJsonResponse(response: string): string {
     }
   }
   
-  // Additional cleaning for common JSON issues
+  // Try to parse first to see if it's already valid
   try {
-    // Try to parse and re-stringify to validate and clean
     const parsed = JSON.parse(cleaned);
     return JSON.stringify(parsed);
   } catch (error) {
-    // If parsing fails, try to fix common issues
     console.warn('JSON parsing failed, attempting to fix:', error);
     
-    // Fix common issues:
-    // 1. Unescaped quotes in strings
-    cleaned = cleaned.replace(/([^\\])"([^"]*)"([^,}\]]*)/g, (match, before, content, after) => {
-      // Only fix if it looks like an unescaped quote in a string value
-      if (before.match(/[:\s]/) && after.match(/[,}\]]/)) {
-        const escapedContent = content.replace(/"/g, '\\"');
-        return `${before}"${escapedContent}"${after}`;
+    // Check if the response looks like it was truncated
+    if (cleaned.length > 1000 && !cleaned.endsWith('}') && !cleaned.endsWith(']')) {
+      console.warn('Response appears to be truncated, attempting to complete it');
+      
+      // Try to find the last complete object/array and close it
+      let truncated = cleaned;
+      
+      // Count unclosed brackets and braces
+      const openBrackets = (truncated.match(/\[/g) || []).length;
+      const closeBrackets = (truncated.match(/\]/g) || []).length;
+      const openBraces = (truncated.match(/\{/g) || []).length;
+      const closeBraces = (truncated.match(/\}/g) || []).length;
+      
+      // Add missing closing brackets/braces
+      for (let i = 0; i < openBrackets - closeBrackets; i++) {
+        truncated += ']';
       }
-      return match;
-    });
+      for (let i = 0; i < openBraces - closeBraces; i++) {
+        truncated += '}';
+      }
+      
+      // Try to parse the completed version
+      try {
+        const completedParsed = JSON.parse(truncated);
+        console.log('Successfully completed truncated JSON');
+        return JSON.stringify(completedParsed);
+      } catch (completionError) {
+        console.warn('Failed to complete truncated JSON:', completionError);
+      }
+    }
     
-    // 2. Remove trailing commas
-    cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
+    // More conservative approach - only fix obvious issues
+    let fixed = cleaned;
     
-    // 3. Fix missing quotes around keys
-    cleaned = cleaned.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
+    // 1. Remove trailing commas before closing brackets/braces
+    fixed = fixed.replace(/,(\s*[}\]])/g, '$1');
     
-    // 4. Remove any non-JSON content that might be mixed in
-    const lines = cleaned.split('\n');
+    // 2. Fix missing quotes around object keys (but be more careful)
+    fixed = fixed.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
+    
+    // 3. Try to find the complete JSON object/array by counting brackets
+    const lines = fixed.split('\n');
     const jsonLines = [];
+    let bracketCount = 0;
+    let braceCount = 0;
     let inJson = false;
+    let foundStart = false;
     
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+      
+      // Start counting when we find the opening bracket/brace
+      if (!foundStart && (trimmed.startsWith('[') || trimmed.startsWith('{'))) {
+        foundStart = true;
         inJson = true;
       }
+      
       if (inJson) {
         jsonLines.push(line);
-        if (trimmed.endsWith(']') || trimmed.endsWith('}')) {
+        
+        // Count brackets and braces
+        for (const char of line) {
+          if (char === '[') bracketCount++;
+          if (char === ']') bracketCount--;
+          if (char === '{') braceCount++;
+          if (char === '}') braceCount--;
+        }
+        
+        // Stop when we have balanced brackets and braces
+        if (foundStart && bracketCount === 0 && braceCount === 0) {
           break;
         }
       }
     }
     
     if (jsonLines.length > 0) {
-      cleaned = jsonLines.join('\n');
+      fixed = jsonLines.join('\n');
     }
     
-    return cleaned;
+    // Try parsing the fixed version
+    try {
+      const parsed = JSON.parse(fixed);
+      return JSON.stringify(parsed);
+    } catch (secondError) {
+      console.error('JSON cleaning failed completely:', secondError);
+      console.error('Original response length:', response.length);
+      console.error('Cleaned response length:', fixed.length);
+      console.error('First 500 chars of cleaned:', fixed.substring(0, 500));
+      console.error('Last 200 chars of cleaned:', fixed.substring(Math.max(0, fixed.length - 200)));
+      
+      // Try to salvage what we can from the partial JSON
+      try {
+        // Look for the last complete claim or object
+        const lastCompleteBrace = fixed.lastIndexOf('}');
+        const lastCompleteBracket = fixed.lastIndexOf(']');
+        const lastComplete = Math.max(lastCompleteBrace, lastCompleteBracket);
+        
+        if (lastComplete > 0) {
+          // Try to find a complete structure up to the last complete element
+          let salvaged = fixed.substring(0, lastComplete + 1);
+          
+          // If we're in the middle of an array, try to close it
+          if (lastCompleteBracket > lastCompleteBrace) {
+            // We're in an array, try to close it properly
+            const openBrackets = (salvaged.match(/\[/g) || []).length;
+            const closeBrackets = (salvaged.match(/\]/g) || []).length;
+            const openBraces = (salvaged.match(/\{/g) || []).length;
+            const closeBraces = (salvaged.match(/\}/g) || []).length;
+            
+            // Add missing closing brackets/braces
+            for (let i = 0; i < openBrackets - closeBrackets; i++) {
+              salvaged += ']';
+            }
+            for (let i = 0; i < openBraces - closeBraces; i++) {
+              salvaged += '}';
+            }
+          }
+          
+          // Try to parse the salvaged JSON
+          const salvagedParsed = JSON.parse(salvaged);
+          console.log('Successfully salvaged partial JSON');
+          return JSON.stringify(salvagedParsed);
+        }
+      } catch (salvageError) {
+        console.error('Salvage attempt failed:', salvageError);
+      }
+      
+      // Return a fallback JSON structure
+      return JSON.stringify({
+        overallRating: 5,
+        overallConfidence: 0.1,
+        overallAssessment: "Unable to parse response",
+        overallExplanation: "The AI response could not be parsed as valid JSON",
+        claims: [{
+          claim: "Response parsing failed",
+          rating: 1,
+          confidence: 0.1,
+          explanation: "The AI response was malformed and could not be processed",
+          sources: [],
+          keyEvidence: [],
+          groundingUsed: false
+        }],
+        searchMetadata: null
+      });
+    }
   }
 }
 
