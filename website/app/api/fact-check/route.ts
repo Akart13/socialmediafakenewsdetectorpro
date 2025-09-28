@@ -2,24 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-utils";
 import { withCors } from "@/lib/cors";
 import { db } from "@/lib/firebaseAdmin";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // Force Node.js runtime to prevent truncation
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+// Direct REST API configuration
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const API_KEY = process.env.GEMINI_API_KEY!;
 
-const schema = {
-  type: "object" as const,
-  properties: {
-    verdict: { type: "string" as const, enum: ["True","Likely True","Mixed","Likely False","False","Unverifiable"] },
-    rationale: { type: "string" as const },
-    sources: { type: "array" as const, items: { type: "string" as const } }
-  },
-  required: ["verdict","rationale","sources"] as const
-};
+// Schema removed - using free-form response with grounding
 
 function stripCodeFences(s: string) {
   return s.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, "$1").trim();
@@ -42,6 +34,26 @@ function sanitize(out: any) {
     .filter((u: string) => typeof u === "string" && /^https?:\/\//i.test(u))
     .slice(0, 5);
   return { verdict, rationale, sources: clean };
+}
+
+function extractGroundedSources(responseData: any): string[] {
+  try {
+    // Extract grounded sources from the response metadata
+    const groundingMetadata = responseData.candidates?.[0]?.groundingMetadata;
+    if (!groundingMetadata) return [];
+
+    // Check for web search results
+    const webResults = groundingMetadata.web?.searchResults || [];
+    const sources = webResults
+      .map((result: any) => result.uri || result.url)
+      .filter((url: string) => typeof url === "string" && /^https?:\/\//i.test(url))
+      .slice(0, 5); // Limit to 5 sources
+
+    return sources;
+  } catch (error) {
+    console.warn("Failed to extract grounded sources:", error);
+    return [];
+  }
 }
 
 const DAILY_FREE_LIMIT = 5;
@@ -90,34 +102,111 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
 
-    const prompt = `Fact-check the post below.
-Return ONLY JSON with fields: verdict, rationale, sources (array of URLs).
-No markdown, no backticks. If nothing can be verified with reliable web sources, set verdict="Unverifiable" and sources=[].
+    const prompt = `Fact-check the post below and return your response as valid JSON.
 
-Post:
+Required JSON format:
+{
+  "verdict": "True" | "Likely True" | "Mixed" | "Likely False" | "False" | "Unverifiable",
+  "rationale": "Your explanation of the fact-check",
+  "sources": ["url1", "url2", "url3"]
+}
+
+Rules:
+- verdict must be one of the exact values above
+- rationale should be 2-3 sentences explaining your assessment
+- sources should be an array of URLs from your web search (if any)
+- If you cannot verify with reliable web sources, set verdict="Unverifiable" and sources=[]
+- Return ONLY the JSON object, no other text, no markdown, no backticks
+
+Post to fact-check:
 ${text}`;
 
-    const resp = await model.generateContent({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
+    // Direct REST API call with grounding enabled
+    const requestBody = {
+      contents: [{
+        role: "user",
+        parts: [{ text: prompt }]
+      }],
       generationConfig: {
-        responseMimeType: "application/json",
         maxOutputTokens: 1024
-      }
-      // (Add tools/search grounding later once the basics are stable)
+      },
+      tools: [{
+        googleSearch: {}
+      }]
+    };
+
+    const response = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody)
     });
 
-    let raw = resp.response.text();       // <- always use text()
-    if (!raw || raw.length < 20) {
-      // Retry once without schema, then fall back
-      const r2 = await model.generateContent({
-        contents: [{ role: "user", parts: [{ text: prompt }] }]
-      });
-      raw = r2.response.text() || "";
+    if (!response.ok) {
+      const errorData = await response.text();
+      throw new Error(`Gemini API error: ${response.status} ${response.statusText} - ${errorData}`);
     }
 
+    const responseData = await response.json();
+    
+    // Extract text from response
+    let raw = responseData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    
+    if (!raw || raw.length < 20) {
+      // Retry once without grounding if first attempt fails
+      const retryBody = {
+        contents: [{
+          role: "user", 
+          parts: [{ text: prompt }]
+        }],
+        generationConfig: {
+          maxOutputTokens: 1024
+        }
+      };
+
+      const retryResponse = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(retryBody)
+      });
+
+      if (retryResponse.ok) {
+        const retryData = await retryResponse.json();
+        raw = retryData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      }
+    }
+
+    // Clean and parse the response
     const deFenced = stripCodeFences(raw);
-    const parsed = safeJSON(deFenced);
-    let normalized = parsed ? sanitize(parsed) : { verdict: "Unverifiable", rationale: deFenced || "Empty response", sources: [] };
+    let parsed = safeJSON(deFenced);
+    
+    // If JSON parsing failed, try to extract JSON from the response
+    if (!parsed) {
+      const jsonMatch = deFenced.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsed = safeJSON(jsonMatch[0]);
+      }
+    }
+    
+    let normalized = parsed ? sanitize(parsed) : { 
+      verdict: "Unverifiable", 
+      rationale: deFenced || "Empty response", 
+      sources: [] 
+    };
+
+    // Extract grounded sources from the response
+    const groundedSources = extractGroundedSources(responseData);
+    
+    // If we have grounded sources, use them; otherwise use the model's sources
+    if (groundedSources.length > 0) {
+      normalized.sources = groundedSources;
+    } else if (normalized.sources.length === 0) {
+      // If no grounded sources and no model sources, force Unverifiable
+      normalized.verdict = "Unverifiable";
+    }
 
     // Convert to format expected by extension
     const extensionFormat = {
