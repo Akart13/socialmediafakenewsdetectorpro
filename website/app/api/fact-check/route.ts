@@ -2,577 +2,172 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-utils";
 import { withCors } from "@/lib/cors";
 import { db } from "@/lib/firebaseAdmin";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
+// Force Node.js runtime to prevent truncation
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+const schema = {
+  type: "object" as const,
+  properties: {
+    verdict: { type: "string" as const, enum: ["True","Likely True","Mixed","Likely False","False","Unverifiable"] },
+    rationale: { type: "string" as const },
+    sources: { type: "array" as const, items: { type: "string" as const } }
+  },
+  required: ["verdict","rationale","sources"] as const
+};
+
+function stripCodeFences(s: string) {
+  return s.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, "$1").trim();
+}
+
+function safeJSON(s: string) { 
+  try { 
+    return JSON.parse(s); 
+  } catch { 
+    return null; 
+  } 
+}
+
+function sanitize(out: any) {
+  const verdict = out?.verdict ?? out?.rating ?? "Unclear";
+  const rationale = out?.rationale ?? out?.overallExplanation ?? "No rationale provided.";
+  const sources = Array.isArray(out?.sources) ? out.sources : [];
+  const clean = sources
+    .map((x: any) => typeof x === "string" ? x : x?.url)
+    .filter((u: string) => typeof u === "string" && /^https?:\/\//i.test(u))
+    .slice(0, 5);
+  return { verdict, rationale, sources: clean };
+}
 
 const DAILY_FREE_LIMIT = 5;
 
 async function handler(req: NextRequest) {
   try {
+    // Check authentication
     const user = await requireAuth(req);
-    const { text, images, platform } = await req.json();
-
-    if (!text || typeof text !== 'string' || text.trim().length === 0) {
-      return NextResponse.json({ error: "Text content required" }, { status: 400 });
+    
+    // Get user data and check quota
+    const userDoc = await db.collection('users').doc(user.uid).get();
+    const userData = userDoc.exists ? userDoc.data()! : { plan: 'free' };
+    
+    // Check if user is on pro plan
+    const isPro = userData.plan === 'pro' && userData.subscriptionStatus === 'active';
+    
+    // Check daily quota for free users
+    if (!isPro) {
+      const today = new Date().toISOString().slice(0, 10);
+      const usage = userData.usage || { date: today, count: 0 };
+      
+      // Reset count if it's a new day
+      if (usage.date !== today) {
+        usage.date = today;
+        usage.count = 0;
+      }
+      
+      // Check if quota exceeded
+      if (usage.count >= DAILY_FREE_LIMIT) {
+        return NextResponse.json({ 
+          error: "Free quota exceeded", 
+          upgradeUrl: "https://fact-checker-website.vercel.app/upgrade" 
+        }, { status: 402 });
+      }
+      
+      // Increment usage count
+      usage.count += 1;
+      await db.collection('users').doc(user.uid).set({
+        usage: usage
+      }, { merge: true });
     }
 
-    // Check quota using Firestore transaction
-    const docRef = db.collection('users').doc(user.uid);
+    const { text } = await req.json();
     
-    await db.runTransaction(async (transaction) => {
-      const snap = await transaction.get(docRef);
-      const data = snap.exists ? snap.data()! : { plan: "free" };
+    if (!text || typeof text !== "string" || text.length < 5) {
+      return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+    }
 
-      // Reset daily window on date change
-      const today = new Date().toISOString().slice(0, 10);
-      const prev = data.usage?.date || today;
-      const count = (prev === today) ? (data.usage?.count || 0) : 0;
+    const prompt = `Fact-check the post below.
+Return ONLY JSON with fields: verdict, rationale, sources (array of URLs).
+No markdown, no backticks. If nothing can be verified with reliable web sources, set verdict="Unverifiable" and sources=[].
 
-      const isPro = data.plan === "pro" && data.subscriptionStatus === "active";
-      if (!isPro && count >= DAILY_FREE_LIMIT) {
-        throw new Error("QUOTA");
+Post:
+${text}`;
+
+    const resp = await model.generateContent({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        maxOutputTokens: 1024
       }
-
-      // Optimistic increment
-      transaction.set(docRef, { 
-        usage: { 
-          date: today, 
-          count: isPro ? count : count + 1 
-        } 
-      }, { merge: true });
+      // (Add tools/search grounding later once the basics are stable)
     });
 
-    // Call Gemini API directly via REST (matching extension approach)
-    const sanitizedText = text.replace(/["\\]/g, '\\$&').substring(0, 2000);
-    
-     const prompt = `
-     Analyze this social media post and provide a comprehensive fact-check using real-time search results.
-     
-     Post Text: "${sanitizedText}"
-     ${images && images.length > 0 ? `Images: ${images.length} image(s) with extracted text` : ''}
-     
-     CRITICAL: You have access to real-time search results through grounding. Use ONLY the actual URLs, titles, and content from the search results provided by the grounding system. Do NOT generate or make up URLs, titles, or content. Only reference sources that are actually found in the search results.
-     
-     When you find sources in the search results, use their EXACT URLs and titles. Do not modify or generate fake URLs.
-     
-     Please provide a complete fact-check analysis in this JSON format:
-     {
-       "overallRating": 7,
-       "overallConfidence": 0.8,
-       "overallAssessment": "Likely True",
-       "overallExplanation": "Most claims are well-supported by evidence from authoritative sources",
-       "claims": [
-         {
-           "claim": "The unemployment rate in the US is 3.5%",
-           "rating": 8,
-           "confidence": 0.9,
-           "explanation": "This statistic is accurate according to recent BLS data found in search results",
-           "sources": [
-             {
-               "url": "ACTUAL_URL_FROM_SEARCH_RESULTS",
-               "title": "ACTUAL_TITLE_FROM_SEARCH_RESULTS",
-               "credibilityScore": 10,
-               "relevanceScore": 10,
-               "summary": "Summary based on actual search result content",
-               "searchResult": true
-             }
-           ],
-           "keyEvidence": ["Evidence from actual search results"],
-           "groundingUsed": true
-         }
-       ],
-       "searchMetadata": {
-         "sourcesFound": 3,
-         "authoritativeSources": 2,
-         "searchQueries": ["unemployment rate 2024", "BLS employment data"]
-       }
-     }
-     
-     Focus on:
-     1. Extract 2-4 most important factual claims
-     2. Use ONLY actual URLs and titles from search results
-     3. Rate each claim's credibility (1-10) based on source quality
-     4. Provide clear explanations with source citations from real search results
-     5. Note when grounding/search results were used
-     6. Keep it concise but thorough
-   `;
-
-    // Direct REST API call to Gemini with grounding support (matching extension)
-    const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: prompt
-            }]
-          }],
-          generationConfig: {
-            temperature: 0.1,
-            topK: 1,
-            topP: 0.8,
-            maxOutputTokens: 2048,
-          },
-          // Enable search grounding for fact-checking (matching extension)
-          tools: [{
-            googleSearch: {}
-          }]
-        })
-      }
-    );
-
-    if (!geminiResponse.ok) {
-      throw new Error(`Gemini API error: ${geminiResponse.status} ${geminiResponse.statusText}`);
-    }
-
-    const geminiData = await geminiResponse.json();
-    
-    if (!geminiData.candidates || !geminiData.candidates[0] || !geminiData.candidates[0].content) {
-      throw new Error('Invalid response from Gemini API');
-    }
-
-    // Extract text content and grounding metadata (matching extension approach)
-    const candidate = geminiData.candidates[0];
-    let responseText = '';
-    let groundingMetadata = null;
-    
-    // Extract text content from the response
-    if (candidate.content && candidate.content.parts) {
-      responseText = candidate.content.parts
-        .filter((part: any) => part.text)
-        .map((part: any) => part.text)
-        .join(' ');
-    }
-    
-     // Extract grounding metadata if available
-     if (candidate.groundingMetadata) {
-       groundingMetadata = candidate.groundingMetadata;
-     }
-
-     // Extract real sources from grounding metadata (matching extension approach)
-     const realSources = extractRealSourcesFromGrounding(groundingMetadata);
-     console.log('Real sources from grounding:', realSources);
-
-     const result = {
-       response: {
-         text: () => responseText
-       },
-       groundingMetadata: groundingMetadata,
-       realSources: realSources
-     };
-
-    const response = result.response;
-    let textContent = response.text();
-
-    // Clean up the response text to extract JSON (matching extension approach)
-    textContent = cleanJsonResponse(textContent);
-
-     // Parse and validate the response
-     let factCheckData;
-     try {
-       factCheckData = JSON.parse(textContent);
-       
-       // Use real sources from grounding for claims
-       if (result.realSources && result.realSources.length > 0 && factCheckData.claims) {
-         factCheckData.claims = factCheckData.claims.map((claim: any) => {
-           const realSourcesForClaim = getRealSourcesForClaim(claim, result.realSources);
-           if (realSourcesForClaim.length > 0) {
-             claim.sources = realSourcesForClaim;
-             claim.groundingUsed = true;
-           }
-           return claim;
-         });
-       }
-       
-       // Validate required fields and set defaults
-      if (!factCheckData.overallRating || typeof factCheckData.overallRating !== 'number') {
-        factCheckData.overallRating = 5;
-      }
-      if (!factCheckData.overallConfidence || typeof factCheckData.overallConfidence !== 'number') {
-        factCheckData.overallConfidence = 0.5;
-      }
-      if (!factCheckData.overallAssessment || typeof factCheckData.overallAssessment !== 'string') {
-        factCheckData.overallAssessment = "Uncertain";
-      }
-      if (!factCheckData.overallExplanation || typeof factCheckData.overallExplanation !== 'string') {
-        factCheckData.overallExplanation = "Analysis completed";
-      }
-      if (!Array.isArray(factCheckData.claims)) {
-        factCheckData.claims = [];
-      }
-      
-      // Validate and normalize each claim
-      factCheckData.claims = factCheckData.claims.map((claim: any) => {
-  return {
-          claim: typeof claim.claim === 'string' ? claim.claim : "Unable to analyze claim",
-          rating: typeof claim.rating === 'number' ? Math.max(1, Math.min(10, claim.rating)) : 5,
-          confidence: typeof claim.confidence === 'number' ? Math.max(0, Math.min(1, claim.confidence)) : 0.5,
-          explanation: typeof claim.explanation === 'string' ? claim.explanation : "No explanation provided",
-          sources: Array.isArray(claim.sources) ? claim.sources.map((source: any) => ({
-            url: typeof source.url === 'string' ? source.url : "",
-            title: typeof source.title === 'string' ? source.title : "Untitled Source",
-            credibilityScore: typeof source.credibilityScore === 'number' ? Math.max(1, Math.min(10, source.credibilityScore)) : 5,
-            relevanceScore: typeof source.relevanceScore === 'number' ? Math.max(1, Math.min(10, source.relevanceScore)) : 5,
-            summary: typeof source.summary === 'string' ? source.summary : "",
-            searchResult: typeof source.searchResult === 'boolean' ? source.searchResult : false
-          })) : [],
-          keyEvidence: Array.isArray(claim.keyEvidence) ? claim.keyEvidence : [],
-          groundingUsed: typeof claim.groundingUsed === 'boolean' ? claim.groundingUsed : false
-        };
+    let raw = resp.response.text();       // <- always use text()
+    if (!raw || raw.length < 20) {
+      // Retry once without schema, then fall back
+      const r2 = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }]
       });
-      
-      // Validate searchMetadata
-      if (!factCheckData.searchMetadata || typeof factCheckData.searchMetadata !== 'object') {
-        factCheckData.searchMetadata = {
-          sourcesFound: 0,
-          authoritativeSources: 0,
-          searchQueries: []
-        };
-      } else {
-        factCheckData.searchMetadata = {
-          sourcesFound: typeof factCheckData.searchMetadata.sourcesFound === 'number' ? factCheckData.searchMetadata.sourcesFound : 0,
-          authoritativeSources: typeof factCheckData.searchMetadata.authoritativeSources === 'number' ? factCheckData.searchMetadata.authoritativeSources : 0,
-          searchQueries: Array.isArray(factCheckData.searchMetadata.searchQueries) ? factCheckData.searchMetadata.searchQueries : []
-        };
-      }
-      
-    } catch (parseError) {
-      console.error('JSON parsing error:', parseError);
-      console.error('Raw response:', textContent);
-      
-      // If JSON parsing fails, create a fallback response
-      factCheckData = {
-        overallRating: 5,
-        overallConfidence: 0.5,
-        overallAssessment: "Uncertain",
-        overallExplanation: "Unable to parse AI response. Please try again.",
-        claims: [{
-          claim: "Unable to analyze this post",
-          rating: 5,
-          confidence: 0.5,
-          explanation: "Analysis failed due to parsing error. The AI response was not in the expected format.",
-          sources: [],
+      raw = r2.response.text() || "";
+    }
+
+    const deFenced = stripCodeFences(raw);
+    const parsed = safeJSON(deFenced);
+    let normalized = parsed ? sanitize(parsed) : { verdict: "Unverifiable", rationale: deFenced || "Empty response", sources: [] };
+
+    // Convert to format expected by extension
+    const extensionFormat = {
+      overallRating: {
+        rating: normalized.verdict === "True" ? 9 : 
+                normalized.verdict === "Likely True" ? 8 :
+                normalized.verdict === "Mixed" ? 6 :
+                normalized.verdict === "Likely False" ? 3 :
+                normalized.verdict === "False" ? 1 : 5,
+        confidence: 0.8,
+        assessment: normalized.verdict,
+        explanation: normalized.rationale
+      },
+      claims: [{
+        claim: "Overall assessment",
+        credibilityRating: {
+          rating: normalized.verdict === "True" ? 9 : 
+                  normalized.verdict === "Likely True" ? 8 :
+                  normalized.verdict === "Mixed" ? 6 :
+                  normalized.verdict === "Likely False" ? 3 :
+                  normalized.verdict === "False" ? 1 : 5,
+          confidence: 0.8,
+          explanation: normalized.rationale,
           keyEvidence: [],
           groundingUsed: false
-        }],
-        searchMetadata: null
-      };
-    }
-
-    // Normalize the response structure to match what the extension expects
-    const normalizedResponse = {
-      overallRating: {
-        rating: factCheckData.overallRating || 5,
-        confidence: factCheckData.overallConfidence || 0.5,
-        assessment: factCheckData.overallAssessment || "Uncertain",
-        explanation: factCheckData.overallExplanation || "Analysis completed"
-      },
-      claims: (factCheckData.claims || []).map((claim: any) => ({
-        claim: claim.claim || "Unable to analyze claim",
-        sources: (claim.sources || []).map((source: any) => ({
-          url: source.url || "",
-          title: source.title || "",
-          credibilityScore: source.credibilityScore || 5,
-          relevanceScore: source.relevanceScore || 5,
-          summary: source.summary || "",
-          searchResult: source.searchResult || false
-        })),
-        credibilityRating: {
-          rating: claim.rating || 5,
-          confidence: claim.confidence || 0.5,
-          explanation: claim.explanation || "No explanation provided",
-          keyEvidence: claim.keyEvidence || [],
-          groundingUsed: claim.groundingUsed || false
-        }
-      })),
-      searchMetadata: factCheckData.searchMetadata || null
+        },
+        sources: normalized.sources.map((url: string) => ({
+          url: url,
+          title: "Source",
+          credibilityScore: 7,
+          relevanceScore: 8,
+          summary: "Fact-checking source",
+          searchResult: true
+        }))
+      }],
+      searchMetadata: {
+        sourcesFound: normalized.sources.length,
+        authoritativeSources: normalized.sources.length,
+        searchQueries: []
+      }
     };
 
-    return NextResponse.json(normalizedResponse);
-
-  } catch (error: any) {
-    if (error.message === "NO_AUTH") {
-      return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-    }
-    if (error.message === "QUOTA") {
-      return NextResponse.json({ 
-        error: "Free quota exceeded", 
-        upgradeUrl: "https://fact-checker-website.vercel.app/upgrade" 
-      }, { status: 402 });
-    }
-    
-    console.error('Fact check error:', error);
-    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+    return NextResponse.json(extensionFormat);
+  } catch (e: any) {
+    console.error("Gemini error:", e?.response?.data || e?.message || e);
+    const msg = e?.message || "unknown";
+    // If SDK threw a 400, surface it; otherwise 500
+    const isBadReq = /400/i.test(msg);
+    return NextResponse.json({ error: `Gemini API error: ${msg}` }, { status: isBadReq ? 400 : 500 });
   }
-}
-
-function cleanJsonResponse(response: string): string {
-  // Remove markdown code blocks and clean up the response
-  let cleaned = response.trim();
-  
-  // Remove ```json and ``` markers
-  cleaned = cleaned.replace(/^```json\s*/i, '');
-  cleaned = cleaned.replace(/```\s*$/i, '');
-  cleaned = cleaned.replace(/^```\s*/i, '');
-  
-  // Remove any leading/trailing whitespace
-  cleaned = cleaned.trim();
-  
-  // If the response doesn't start with [ or {, try to find the JSON part
-  if (!cleaned.startsWith('[') && !cleaned.startsWith('{')) {
-    const jsonMatch = cleaned.match(/(\[[\s\S]*\]|\{[\s\S]*\})/);
-    if (jsonMatch) {
-      cleaned = jsonMatch[1];
-    }
-  }
-  
-  // Additional cleaning for common JSON issues
-  try {
-    // Try to parse and re-stringify to validate and clean
-    const parsed = JSON.parse(cleaned);
-    return JSON.stringify(parsed);
-  } catch (error: any) {
-    // If parsing fails, try to fix common issues
-    console.warn('JSON parsing failed, attempting to fix:', error.message);
-    
-    // Fix common issues:
-    // 1. Unescaped quotes in strings
-    cleaned = cleaned.replace(/([^\\])"([^"]*)"([^,}\]]*)/g, (match, before, content, after) => {
-      // Only fix if it looks like an unescaped quote in a string value
-      if (before.match(/[:\s]/) && after.match(/[,}\]]/)) {
-        const escapedContent = content.replace(/"/g, '\\"');
-        return `${before}"${escapedContent}"${after}`;
-      }
-      return match;
-    });
-    
-    // 2. Remove trailing commas
-    cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
-    
-    // 3. Fix missing quotes around keys
-    cleaned = cleaned.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
-    
-    // 4. Remove any non-JSON content that might be mixed in
-    const lines = cleaned.split('\n');
-    const jsonLines = [];
-    let inJson = false;
-    
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
-        inJson = true;
-      }
-      if (inJson) {
-        jsonLines.push(line);
-        if (trimmed.endsWith(']') || trimmed.endsWith('}')) {
-          break;
-        }
-      }
-    }
-    
-    if (jsonLines.length > 0) {
-      cleaned = jsonLines.join('\n');
-    }
-    
-    return cleaned;
-  }
-}
-
-// Extract real sources from grounding metadata (matching extension)
-function extractRealSourcesFromGrounding(groundingMetadata: any) {
-  if (!groundingMetadata || !groundingMetadata.webSearchQueries) {
-    return [];
-  }
-  
-  const realSources: any[] = [];
-  
-  // Extract sources from web search grounding
-  groundingMetadata.webSearchQueries.forEach((query: any) => {
-    if (query.webSearchResults) {
-      query.webSearchResults.forEach((result: any) => {
-        if (result.url && result.title && isValidUrl(result.url)) {
-          realSources.push({
-            url: result.url,
-            title: result.title,
-            snippet: result.snippet || '',
-            credibilityScore: calculateCredibilityScore(result.url, result.title),
-            relevanceScore: 8, // Default high relevance for search results
-            summary: result.snippet || '',
-            searchResult: true
-          });
-        }
-      });
-    }
-  });
-  
-  return realSources;
-}
-
-// Validate URL format and accessibility
-function isValidUrl(url: string) {
-  try {
-    const urlObj = new URL(url);
-    // Check if it's a valid HTTP/HTTPS URL
-    return urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
-  } catch (error) {
-    return false;
-  }
-}
-
-// Calculate credibility score based on URL domain and title
-function calculateCredibilityScore(url: string, title: string) {
-  let score = 5; // Base score
-  
-  // Government sources
-  if (url.includes('.gov')) score = 10;
-  // Educational institutions
-  else if (url.includes('.edu')) score = 9;
-  // Major news organizations
-  else if (url.includes('reuters.com') || url.includes('ap.org') || url.includes('bbc.com') || 
-           url.includes('npr.org') || url.includes('pbs.org') || url.includes('wsj.com') ||
-           url.includes('nytimes.com') || url.includes('washingtonpost.com')) score = 9;
-  // Scientific journals
-  else if (url.includes('nature.com') || url.includes('science.org') || url.includes('pubmed.ncbi.nlm.nih.gov')) score = 10;
-  // International organizations
-  else if (url.includes('who.int') || url.includes('un.org') || url.includes('worldbank.org')) score = 9;
-  // Wikipedia (moderate credibility)
-  else if (url.includes('wikipedia.org')) score = 6;
-  // Social media (lower credibility)
-  else if (url.includes('twitter.com') || url.includes('facebook.com') || url.includes('instagram.com')) score = 3;
-  
-  return Math.max(1, Math.min(10, score));
-}
-
-// Get real sources for a specific claim
-function getRealSourcesForClaim(claim: any, realSources: any[]) {
-  if (!realSources || realSources.length === 0) {
-    return [];
-  }
-  
-  // Simple keyword matching to find relevant sources
-  const claimKeywords = (claim.claim || '').toLowerCase().split(/\s+/);
-  const relevantSources = realSources.filter((source: any) => {
-    const sourceText = (source.title + ' ' + source.summary).toLowerCase();
-    return claimKeywords.some((keyword: string) => 
-      keyword.length > 3 && sourceText.includes(keyword)
-    );
-  });
-  
-  // Return top 3 most relevant sources with URL validation
-  return relevantSources
-    .filter((source: any) => isValidUrl(source.url)) // Only include valid URLs
-    .sort((a: any, b: any) => b.relevanceScore - a.relevanceScore)
-    .slice(0, 3)
-    .map((source: any) => ({
-      url: source.url.substring(0, 500),
-      title: source.title.substring(0, 200),
-      credibilityScore: source.credibilityScore,
-      relevanceScore: source.relevanceScore,
-      summary: source.summary.substring(0, 300),
-      searchResult: source.searchResult
-    }));
-}
-
-// Helper function to extract URLs from grounding metadata (legacy)
-function extractUrlsFromGrounding(groundingMetadata: any): Array<{url: string, title: string, snippet: string}> {
-  const urls: Array<{url: string, title: string, snippet: string}> = [];
-  
-  if (!groundingMetadata || !groundingMetadata.groundingChunks) {
-    return urls;
-  }
-  
-  try {
-    for (const chunk of groundingMetadata.groundingChunks) {
-      if (chunk.web && chunk.web.uri) {
-        urls.push({
-          url: chunk.web.uri,
-          title: chunk.web.title || 'Untitled',
-          snippet: chunk.web.snippet || ''
-        });
-      }
-    }
-  } catch (error) {
-    console.error('Error extracting URLs from grounding:', error);
-  }
-  
-  return urls;
-}
-
-// Helper function to replace fake URLs with real ones from grounding
-function replaceFakeUrlsWithRealOnes(factCheckData: any, actualUrls: Array<{url: string, title: string, snippet: string}>): any {
-  if (!factCheckData.claims || !Array.isArray(factCheckData.claims)) {
-    return factCheckData;
-  }
-  
-  // Create a mapping of titles to URLs for better matching
-  const urlMap = new Map<string, {url: string, title: string, snippet: string}>();
-  actualUrls.forEach(item => {
-    urlMap.set(item.title.toLowerCase(), item);
-    urlMap.set(item.url, item);
-  });
-  
-  factCheckData.claims.forEach((claim: any) => {
-    if (claim.sources && Array.isArray(claim.sources)) {
-      claim.sources.forEach((source: any) => {
-        // Check if this looks like a fake URL or if we can find a better match
-        if (source.url && (source.url.includes('bls.gov') || source.url.includes('example.com') || 
-            source.url === 'ACTUAL_URL_FROM_SEARCH_RESULTS' || 
-            !source.url.startsWith('http'))) {
-          
-          // Try to find a matching real URL
-          const matchingUrl = findBestMatchingUrl(source, actualUrls);
-          if (matchingUrl) {
-            source.url = matchingUrl.url;
-            source.title = matchingUrl.title;
-            source.summary = matchingUrl.snippet || source.summary;
-            source.searchResult = true;
-          }
-        }
-      });
-    }
-  });
-  
-  return factCheckData;
-}
-
-// Helper function to find the best matching URL based on title or content
-function findBestMatchingUrl(source: any, actualUrls: Array<{url: string, title: string, snippet: string}>): {url: string, title: string, snippet: string} | null {
-  if (!source.title) return actualUrls[0] || null;
-  
-  const sourceTitle = source.title.toLowerCase();
-  
-  // First try exact title match
-  for (const url of actualUrls) {
-    if (url.title.toLowerCase() === sourceTitle) {
-      return url;
-    }
-  }
-  
-  // Then try partial title match
-  for (const url of actualUrls) {
-    if (url.title.toLowerCase().includes(sourceTitle) || sourceTitle.includes(url.title.toLowerCase())) {
-      return url;
-    }
-  }
-  
-  // Finally, try keyword matching
-  const sourceKeywords = sourceTitle.split(' ').filter((word: string) => word.length > 3);
-  for (const url of actualUrls) {
-    const urlKeywords = url.title.toLowerCase().split(' ').filter((word: string) => word.length > 3);
-    const commonKeywords = sourceKeywords.filter((keyword: string) => 
-      urlKeywords.some((urlKeyword: string) => urlKeyword.includes(keyword) || keyword.includes(urlKeyword))
-    );
-    
-    if (commonKeywords.length > 0) {
-      return url;
-    }
-  }
-  
-  return actualUrls[0] || null;
 }
 
 export const POST = withCors(handler);

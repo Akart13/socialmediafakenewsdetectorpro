@@ -91,6 +91,11 @@ class ImageTextExtractor {
       return [];
     }
     
+    // Check if extension context is still valid
+    if (typeof chrome !== 'undefined' && chrome.runtime && !chrome.runtime.id) {
+      throw new Error('Extension context invalidated');
+    }
+    
     if (!this.apiKey) {
       await this.initialize();
     }

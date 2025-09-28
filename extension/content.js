@@ -28,6 +28,7 @@ class SocialMediaExtractor {
     // Check if the extension context is still valid
     if (!chrome.runtime || !chrome.runtime.sendMessage) {
       console.warn('Extension context invalidated - extension may need to be reloaded');
+      this.showContextInvalidatedMessage();
       return;
     }
 
@@ -35,8 +36,47 @@ class SocialMediaExtractor {
     chrome.runtime.sendMessage({ action: 'ping' }, (response) => {
       if (chrome.runtime.lastError) {
         console.warn('Extension context invalidated:', chrome.runtime.lastError.message);
+        this.showContextInvalidatedMessage();
       }
     });
+  }
+
+  showContextInvalidatedMessage() {
+    // Show a user-friendly message when extension context is invalidated
+    const existingMessage = document.querySelector('.fact-check-context-invalidated');
+    if (existingMessage) {
+      return; // Don't show multiple messages
+    }
+
+    const message = document.createElement('div');
+    message.className = 'fact-check-context-invalidated';
+    message.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #ff6b6b;
+      color: white;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      z-index: 10000;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      max-width: 300px;
+    `;
+    message.innerHTML = `
+      <div style="font-weight: 600; margin-bottom: 4px;">Extension Reloaded</div>
+      <div style="font-size: 12px; opacity: 0.9;">Please refresh the page to continue using fact-checking</div>
+    `;
+
+    document.body.appendChild(message);
+
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+      if (message.parentNode) {
+        message.parentNode.removeChild(message);
+      }
+    }, 5000);
   }
 
   async getSettings() {
@@ -115,6 +155,13 @@ class SocialMediaExtractor {
   }
 
   async factCheckPost(post) {
+    // Check if extension context is still valid
+    if (!chrome.runtime || !chrome.runtime.sendMessage) {
+      this.showError(post, 'Extension context invalidated. Please refresh the page.');
+      this.showContextInvalidatedMessage();
+      return;
+    }
+
     const button = post.querySelector('.fact-check-btn');
     if (button) {
       button.innerHTML = '⏳ Checking...';
@@ -148,6 +195,18 @@ class SocialMediaExtractor {
     let imageTexts = [];
     if (images && images.length > 0) {
       try {
+        // Check if extension context is still valid
+        if (!chrome.runtime || !chrome.runtime.sendMessage) {
+          console.warn('Extension context invalidated - skipping image extraction');
+          return {
+            text: text || '',
+            images: images,
+            imageTexts: [],
+            platform: this.platform,
+            error: 'Extension context invalidated'
+          };
+        }
+
         // Check if image processing is enabled
         const settings = await this.getSettings();
         if (settings.showImages !== false && !settings.fastMode) {
@@ -155,6 +214,16 @@ class SocialMediaExtractor {
         }
       } catch (error) {
         console.warn('Failed to extract text from images:', error);
+        // If it's a context invalidation error, return early
+        if (error.message && error.message.includes('Extension context invalidated')) {
+          return {
+            text: text || '',
+            images: images,
+            imageTexts: [],
+            platform: this.platform,
+            error: 'Extension context invalidated'
+          };
+        }
         imageTexts = [];
       }
     }
