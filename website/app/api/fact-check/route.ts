@@ -36,24 +36,29 @@ function sanitize(out: any) {
   return { verdict, rationale, sources: clean };
 }
 
-function extractGroundedSources(responseData: any): string[] {
-  try {
-    // Extract grounded sources from the response metadata
-    const groundingMetadata = responseData.candidates?.[0]?.groundingMetadata;
-    if (!groundingMetadata) return [];
+function extractGrounded(resp: any): {url: string, title: string | null}[] {
+  const c0 = resp?.candidates?.[0];
+  const gm = c0?.groundingMetadata || {};
 
-    // Check for web search results
-    const webResults = groundingMetadata.web?.searchResults || [];
-    const sources = webResults
-      .map((result: any) => result.uri || result.url)
-      .filter((url: string) => typeof url === "string" && /^https?:\/\//i.test(url))
-      .slice(0, 5); // Limit to 5 sources
+  const web = Array.isArray(gm.web?.searchResults) ? gm.web.searchResults : [];
+  const chunks = Array.isArray(gm.groundingChunks) ? gm.groundingChunks : [];
 
-    return sources;
-  } catch (error) {
-    console.warn("Failed to extract grounded sources:", error);
-    return [];
+  const items = [
+    ...web.map((r: any) => ({ url: r.url || r.uri, title: r.title || null })),
+    ...chunks.map((ch: any) => ({ url: ch.web?.uri || ch.source?.url, title: ch.web?.title || ch.source?.title || null })),
+  ];
+
+  const clean: {url: string, title: string | null}[] = [];
+  const seen = new Set<string>();
+  for (const it of items) {
+    const u = it.url;
+    if (!u || !/^https?:\/\//i.test(u)) continue;
+    if (u.includes("vertexaisearch.cloud.google.com/grounding-api-redirect")) continue; // drop redirectors
+    if (seen.has(u)) continue;
+    seen.add(u);
+    clean.push({ url: u, title: it.title || null });
   }
+  return clean.slice(0, 5);
 }
 
 const DAILY_FREE_LIMIT = 5;
@@ -128,7 +133,7 @@ ${text}`;
         parts: [{ text: prompt }]
       }],
       generationConfig: {
-        maxOutputTokens: 1024
+        maxOutputTokens: 2048
       },
       tools: [{
         googleSearch: {}
@@ -150,10 +155,10 @@ ${text}`;
 
     const responseData = await response.json();
     
-    // Extract text from response
-    let raw = responseData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    // Extract raw text from response
+    const rawText = responseData.candidates?.[0]?.content?.parts?.[0]?.text || "";
     
-    if (!raw || raw.length < 20) {
+    if (!rawText || rawText.length < 20) {
       // Retry once without grounding if first attempt fails
       const retryBody = {
         contents: [{
@@ -161,7 +166,7 @@ ${text}`;
           parts: [{ text: prompt }]
         }],
         generationConfig: {
-          maxOutputTokens: 1024
+          maxOutputTokens: 2048
         }
       };
 
@@ -175,67 +180,74 @@ ${text}`;
 
       if (retryResponse.ok) {
         const retryData = await retryResponse.json();
-        raw = retryData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        const retryText = retryData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        if (retryText && retryText.length >= 20) {
+          // Use retry response for parsing
+          const textNoFences = retryText.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, "$1").trim();
+          let modelJson; 
+          try { 
+            modelJson = JSON.parse(textNoFences); 
+          } catch { 
+            modelJson = { rationale: textNoFences }; 
+          }
+          
+          const result = {
+            verdict: modelJson.verdict ?? modelJson.rating ?? "Unverifiable",
+            rationale: modelJson.rationale ?? modelJson.overallExplanation ?? "No rationale provided.",
+            sources: [] // No grounding in retry
+          };
+          
+          return NextResponse.json(result);
+        }
       }
     }
 
-    // Clean and parse the response
-    const deFenced = stripCodeFences(raw);
-    let parsed = safeJSON(deFenced);
+    // Build the final result from grounding metadata (not the model's sources)
+    const grounded = extractGrounded(responseData);
     
-    // If JSON parsing failed, try to extract JSON from the response
-    if (!parsed) {
-      const jsonMatch = deFenced.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        parsed = safeJSON(jsonMatch[0]);
-      }
+    // Parse the model text loosely (it may not be strict JSON with tools enabled)
+    const raw = (rawText || "").replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, "$1").trim();
+    let body: any; 
+    try { 
+      body = JSON.parse(raw); 
+    } catch { 
+      body = { rationale: raw }; 
     }
-    
-    let normalized = parsed ? sanitize(parsed) : { 
-      verdict: "Unverifiable", 
-      rationale: deFenced || "Empty response", 
-      sources: [] 
+
+    const result = {
+      verdict: body?.verdict ?? body?.rating ?? (grounded.length ? "Mixed" : "Unverifiable"),
+      rationale: body?.rationale ?? body?.overallExplanation ?? "No rationale provided.",
+      sources: grounded.map(g => g.url) // ← use only grounded URLs
     };
-
-    // Extract grounded sources from the response
-    const groundedSources = extractGroundedSources(responseData);
-    
-    // If we have grounded sources, use them; otherwise use the model's sources
-    if (groundedSources.length > 0) {
-      normalized.sources = groundedSources;
-    } else if (normalized.sources.length === 0) {
-      // If no grounded sources and no model sources, force Unverifiable
-      normalized.verdict = "Unverifiable";
-    }
 
     // Convert to format expected by extension
     const extensionFormat = {
       overallRating: {
-        rating: normalized.verdict === "True" ? 9 : 
-                normalized.verdict === "Likely True" ? 8 :
-                normalized.verdict === "Mixed" ? 6 :
-                normalized.verdict === "Likely False" ? 3 :
-                normalized.verdict === "False" ? 1 : 5,
+        rating: result.verdict === "True" ? 9 : 
+                result.verdict === "Likely True" ? 8 :
+                result.verdict === "Mixed" ? 6 :
+                result.verdict === "Likely False" ? 3 :
+                result.verdict === "False" ? 1 : 5,
         confidence: 0.8,
-        assessment: normalized.verdict,
-        explanation: normalized.rationale
+        assessment: result.verdict,
+        explanation: result.rationale
       },
       claims: [{
         claim: "Overall assessment",
         credibilityRating: {
-          rating: normalized.verdict === "True" ? 9 : 
-                  normalized.verdict === "Likely True" ? 8 :
-                  normalized.verdict === "Mixed" ? 6 :
-                  normalized.verdict === "Likely False" ? 3 :
-                  normalized.verdict === "False" ? 1 : 5,
+          rating: result.verdict === "True" ? 9 : 
+                  result.verdict === "Likely True" ? 8 :
+                  result.verdict === "Mixed" ? 6 :
+                  result.verdict === "Likely False" ? 3 :
+                  result.verdict === "False" ? 1 : 5,
           confidence: 0.8,
-          explanation: normalized.rationale,
+          explanation: result.rationale,
           keyEvidence: [],
-          groundingUsed: false
+          groundingUsed: grounded.length > 0
         },
-        sources: normalized.sources.map((url: string) => ({
-          url: url,
-          title: "Source",
+        sources: grounded.map((g: {url: string, title: string | null}) => ({
+          url: g.url,
+          title: g.title || "Source",
           credibilityScore: 7,
           relevanceScore: 8,
           summary: "Fact-checking source",
@@ -243,8 +255,8 @@ ${text}`;
         }))
       }],
       searchMetadata: {
-        sourcesFound: normalized.sources.length,
-        authoritativeSources: normalized.sources.length,
+        sourcesFound: grounded.length,
+        authoritativeSources: grounded.length,
         searchQueries: []
       }
     };

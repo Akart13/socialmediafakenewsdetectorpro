@@ -321,8 +321,70 @@ class SocialMediaExtractor {
       existingResults.remove();
     }
 
-    // Create and show interactive overlay
+    // Create and show interactive overlay (popup)
     this.showInteractiveOverlay(results);
+  }
+
+  showCleanResults(post, data) {
+    const { verdict, rationale, sources } = data;
+    
+    // Helper function to clean URLs for display
+    function human(url) { 
+      try { 
+        return new URL(url).hostname.replace(/^www\./,''); 
+      } catch { 
+        return url; 
+      } 
+    }
+
+    const sourcesList = sources.map(u => `<li><a href="${u}" target="_blank" rel="noopener noreferrer">${human(u)}</a></li>`).join("");
+
+    const html = `
+      <div class="fact-check-result">
+        <div><b>Verdict:</b> ${verdict}</div>
+        <div>${rationale}</div>
+        ${sources.length ? `<div><b>Sources</b><ul>${sourcesList}</ul></div>` : `<div><i>No grounded sources</i></div>`}
+      </div>`;
+
+    // Create results container
+    const resultsContainer = document.createElement('div');
+    resultsContainer.className = 'fact-check-results';
+    resultsContainer.innerHTML = html;
+    
+    // Add some basic styling
+    resultsContainer.style.cssText = `
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 8px;
+      padding: 16px;
+      margin: 8px 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.4;
+    `;
+    
+    // Style the links
+    const links = resultsContainer.querySelectorAll('a');
+    links.forEach(link => {
+      link.style.cssText = `
+        color: #007bff;
+        text-decoration: none;
+        font-weight: 500;
+      `;
+    });
+    
+    // Style the list
+    const ulElement = resultsContainer.querySelector('ul');
+    if (ulElement) {
+      ulElement.style.cssText = `
+        margin: 8px 0 0 0;
+        padding-left: 20px;
+        list-style-type: disc;
+      `;
+    }
+
+    // Insert after the post
+    post.parentNode.insertBefore(resultsContainer, post.nextSibling);
   }
 
   showInteractiveOverlay(results) {
@@ -332,15 +394,29 @@ class SocialMediaExtractor {
       existingOverlay.remove();
     }
 
+    // Extract clean data from the complex response format
+    const verdict = results.overallRating?.assessment || "Unverifiable";
+    const rationale = results.overallRating?.explanation || "No rationale provided.";
+    const sources = results.claims?.[0]?.sources?.map(s => s.url) || [];
+
     // Create overlay
     const overlay = document.createElement('div');
     overlay.className = 'fact-check-overlay';
     
     // Overall rating with null checks
-    const overallRating = results.overallRating || { rating: 5, confidence: 0.5, assessment: "Uncertain", explanation: "Analysis incomplete" };
+    const overallRating = results.overallRating || { rating: 5, confidence: 0.5, assessment: verdict, explanation: rationale };
     const ratingClass = (overallRating.rating || 5) >= 7 ? 'rating-high' : 
                        (overallRating.rating || 5) >= 4 ? 'rating-medium' : 'rating-low';
     
+    // Helper function to clean URLs for display
+    function human(url) { 
+      try { 
+        return new URL(url).hostname.replace(/^www\./,''); 
+      } catch { 
+        return url; 
+      } 
+    }
+
     // Build claims HTML
     let claimsHtml = '';
     if (results.claims && results.claims.length > 0) {
@@ -359,7 +435,7 @@ class SocialMediaExtractor {
               ${claim.sources.map(source => {
                 const safeSource = {
                   url: source.url || "#",
-                  title: source.title || "Untitled Source",
+                  title: source.title || human(source.url) || "Source",
                   credibilityScore: source.credibilityScore || 5,
                   relevanceScore: source.relevanceScore || 5,
                   summary: source.summary || ""
