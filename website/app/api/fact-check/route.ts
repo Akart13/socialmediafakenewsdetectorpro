@@ -155,8 +155,16 @@ ${text}`;
 
     const responseData = await response.json();
     
+    // Log the raw response for debugging
+    console.log("=== GEMINI RAW RESPONSE ===");
+    console.log("Full response:", JSON.stringify(responseData, null, 2));
+    console.log("Grounding metadata:", JSON.stringify(responseData.candidates?.[0]?.groundingMetadata, null, 2));
+    console.log("Web search results:", JSON.stringify(responseData.candidates?.[0]?.groundingMetadata?.web?.searchResults, null, 2));
+    console.log("Grounding chunks:", JSON.stringify(responseData.candidates?.[0]?.groundingMetadata?.groundingChunks, null, 2));
+    
     // Extract raw text from response
     const rawText = responseData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    console.log("Raw text content:", rawText);
     
     if (!rawText || rawText.length < 20) {
       // Retry once without grounding if first attempt fails
@@ -205,6 +213,11 @@ ${text}`;
     // Build the final result from grounding metadata (not the model's sources)
     const grounded = extractGrounded(responseData);
     
+    // Log extracted grounded sources
+    console.log("=== EXTRACTED GROUNDED SOURCES ===");
+    console.log("Grounded sources:", JSON.stringify(grounded, null, 2));
+    console.log("Number of grounded sources:", grounded.length);
+    
     // Parse the model text loosely (it may not be strict JSON with tools enabled)
     const raw = (rawText || "").replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, "$1").trim();
     let body: any; 
@@ -214,11 +227,16 @@ ${text}`;
       body = { rationale: raw }; 
     }
 
+    console.log("Parsed model JSON:", JSON.stringify(body, null, 2));
+
     const result = {
       verdict: body?.verdict ?? body?.rating ?? (grounded.length ? "Mixed" : "Unverifiable"),
       rationale: body?.rationale ?? body?.overallExplanation ?? "No rationale provided.",
       sources: grounded.map(g => g.url) // ← use only grounded URLs
     };
+
+    console.log("=== FINAL RESULT ===");
+    console.log("Final result:", JSON.stringify(result, null, 2));
 
     // Convert to format expected by extension
     const extensionFormat = {
