@@ -1,51 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth } from '@/lib/firebaseAdmin';
-import { signToken } from '@/lib/jwt';
-import jwt from 'jsonwebtoken';
+import { getCorsHeaders, createSessionCookie, createSessionFromIdToken, verifyIdTokenAndGetUser, registerUserViaAPI } from '@/lib/auth-helpers';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
+    const origin = request.headers.get('origin');
+    const headers = getCorsHeaders(origin);
     
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Missing or invalid authorization header' }, { status: 401 });
+    const { idToken } = await request.json();
+    
+    if (!idToken) {
+      return NextResponse.json({ error: "ID token required" }, { status: 400, headers });
     }
 
-    const idToken = authHeader.substring(7);
-    
-    // Verify the Firebase ID token
-    const decodedToken = await adminAuth.verifyIdToken(idToken);
-    const uid = decodedToken.uid;
-    const email = decodedToken.email || '';
+    // Verify the Firebase ID token and get user info
+    const { uid, email } = await verifyIdTokenAndGetUser(idToken);
+    console.log(`Extension auth: Authenticated user ${uid} (${email})`);
 
-    // Get the state from request body
-    const body = await request.json();
-    const state = body.state;
-
-    if (!state) {
-      return NextResponse.json({ error: 'Missing state parameter' }, { status: 400 });
+    // Register user in Firestore using the existing /api/users/register endpoint
+    const registerResult = await registerUserViaAPI(idToken);
+    if (!registerResult.success) {
+      console.warn('User registration failed, but continuing with auth:', registerResult.error);
     }
 
-    // Create app JWT token
-    const appToken = jwt.sign(
-      { uid, email },
-      process.env.APP_JWT_SECRET!,
-      { 
-        expiresIn: '24h',
-        algorithm: 'HS256'
-      }
-    );
+    // Create session cookie
+    const sessionCookie = await createSessionFromIdToken(idToken);
 
-    return NextResponse.json({ 
-      appToken,
+    const response = NextResponse.json({ 
+      ok: true,
       uid,
-      email 
-    });
+      email,
+      message: 'Extension authentication successful'
+    }, { headers });
     
+    // Set session cookie
+    createSessionCookie(response, sessionCookie);
+
+    return response;
   } catch (error) {
     console.error('Extension auth error:', error);
-    return NextResponse.json({ error: 'Authentication failed' }, { status: 500 });
+    const origin = request.headers.get('origin');
+    const headers = getCorsHeaders(origin);
+    return NextResponse.json({ error: 'Authentication failed' }, { status: 500, headers });
   }
 }

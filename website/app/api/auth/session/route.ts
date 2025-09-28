@@ -1,34 +1,31 @@
-import { getAuth } from "firebase-admin/auth";
 import { NextRequest, NextResponse } from "next/server";
+import { getCorsHeaders, createSessionCookie, createSessionFromIdToken } from '@/lib/auth-helpers';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   try {
+    const origin = request.headers.get('origin');
+    const headers = getCorsHeaders(origin);
+    
     const { idToken } = await request.json();
     
     if (!idToken) {
-      return NextResponse.json({ error: "ID token required" }, { status: 400 });
+      return NextResponse.json({ error: "ID token required" }, { status: 400, headers });
     }
 
-    const expiresIn = 14 * 24 * 60 * 60 * 1000; // 14 days
-    const sessionCookie = await getAuth().createSessionCookie(idToken, { expiresIn });
-
-    const response = NextResponse.json({ ok: true });
+    // Create session cookie
+    const sessionCookie = await createSessionFromIdToken(idToken);
+    const response = NextResponse.json({ ok: true }, { headers });
     
-    // Set session cookie with proper CORS settings
-    response.cookies.set('__session', sessionCookie, {
-      path: '/',
-      maxAge: expiresIn / 1000,
-      secure: process.env.NODE_ENV === 'production',
-      httpOnly: true,
-      sameSite: 'none', // Required for cross-origin requests from extension
-      domain: process.env.NODE_ENV === 'production' ? '.fact-checker-website.vercel.app' : undefined
-    });
+    // Set session cookie
+    createSessionCookie(response, sessionCookie);
 
     return response;
   } catch (error) {
     console.error('Error creating session cookie:', error);
-    return NextResponse.json({ error: "Failed to create session" }, { status: 500 });
+    const origin = request.headers.get('origin');
+    const headers = getCorsHeaders(origin);
+    return NextResponse.json({ error: "Failed to create session" }, { status: 500, headers });
   }
 }

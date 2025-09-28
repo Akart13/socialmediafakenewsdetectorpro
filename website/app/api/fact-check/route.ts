@@ -45,56 +45,57 @@ async function handler(req: NextRequest) {
     // Call Gemini API directly via REST (matching extension approach)
     const sanitizedText = text.replace(/["\\]/g, '\\$&').substring(0, 2000);
     
-    const prompt = `
-    Analyze this social media post and provide a comprehensive fact-check using real-time search results.
-    
-    Post Text: "${sanitizedText}"
-    ${images && images.length > 0 ? `Images: ${images.length} image(s) with extracted text` : ''}
-    
-    IMPORTANT: Use the search grounding results to verify claims with current, authoritative sources. 
-    Cite specific sources from the search results in your analysis.
-    
-    Please provide a complete fact-check analysis in this JSON format:
-    {
-      "overallRating": 7,
-      "overallConfidence": 0.8,
-      "overallAssessment": "Likely True",
-      "overallExplanation": "Most claims are well-supported by evidence from authoritative sources",
-      "claims": [
-        {
-          "claim": "The unemployment rate in the US is 3.5%",
-          "rating": 8,
-          "confidence": 0.9,
-          "explanation": "This statistic is accurate according to recent BLS data found in search results",
-          "sources": [
-            {
-              "url": "https://bls.gov/news.release/empsit.nr0.htm",
-              "title": "Bureau of Labor Statistics Employment Situation",
-              "credibilityScore": 10,
-              "relevanceScore": 10,
-              "summary": "Official government employment statistics",
-              "searchResult": true
-            }
-          ],
-          "keyEvidence": ["Official BLS data", "Recent employment reports"],
-          "groundingUsed": true
-        }
-      ],
-      "searchMetadata": {
-        "sourcesFound": 3,
-        "authoritativeSources": 2,
-        "searchQueries": ["unemployment rate 2024", "BLS employment data"]
-      }
-    }
-    
-    Focus on:
-    1. Extract 2-4 most important factual claims
-    2. Use search results to find credible, current sources
-    3. Rate each claim's credibility (1-10) based on source quality
-    4. Provide clear explanations with source citations
-    5. Note when grounding/search results were used
-    6. Keep it concise but thorough
-  `;
+     const prompt = `
+     Analyze this social media post and provide a comprehensive fact-check using real-time search results.
+     
+     Post Text: "${sanitizedText}"
+     ${images && images.length > 0 ? `Images: ${images.length} image(s) with extracted text` : ''}
+     
+     CRITICAL: You have access to real-time search results through grounding. Use ONLY the actual URLs, titles, and content from the search results provided by the grounding system. Do NOT generate or make up URLs, titles, or content. Only reference sources that are actually found in the search results.
+     
+     When you find sources in the search results, use their EXACT URLs and titles. Do not modify or generate fake URLs.
+     
+     Please provide a complete fact-check analysis in this JSON format:
+     {
+       "overallRating": 7,
+       "overallConfidence": 0.8,
+       "overallAssessment": "Likely True",
+       "overallExplanation": "Most claims are well-supported by evidence from authoritative sources",
+       "claims": [
+         {
+           "claim": "The unemployment rate in the US is 3.5%",
+           "rating": 8,
+           "confidence": 0.9,
+           "explanation": "This statistic is accurate according to recent BLS data found in search results",
+           "sources": [
+             {
+               "url": "ACTUAL_URL_FROM_SEARCH_RESULTS",
+               "title": "ACTUAL_TITLE_FROM_SEARCH_RESULTS",
+               "credibilityScore": 10,
+               "relevanceScore": 10,
+               "summary": "Summary based on actual search result content",
+               "searchResult": true
+             }
+           ],
+           "keyEvidence": ["Evidence from actual search results"],
+           "groundingUsed": true
+         }
+       ],
+       "searchMetadata": {
+         "sourcesFound": 3,
+         "authoritativeSources": 2,
+         "searchQueries": ["unemployment rate 2024", "BLS employment data"]
+       }
+     }
+     
+     Focus on:
+     1. Extract 2-4 most important factual claims
+     2. Use ONLY actual URLs and titles from search results
+     3. Rate each claim's credibility (1-10) based on source quality
+     4. Provide clear explanations with source citations from real search results
+     5. Note when grounding/search results were used
+     6. Keep it concise but thorough
+   `;
 
     // Direct REST API call to Gemini with grounding support (matching extension)
     const geminiResponse = await fetch(
@@ -147,17 +148,22 @@ async function handler(req: NextRequest) {
         .join(' ');
     }
     
-    // Extract grounding metadata if available
-    if (candidate.groundingMetadata) {
-      groundingMetadata = candidate.groundingMetadata;
-    }
+     // Extract grounding metadata if available
+     if (candidate.groundingMetadata) {
+       groundingMetadata = candidate.groundingMetadata;
+     }
 
-    const result = {
-      response: {
-        text: () => responseText
-      },
-      groundingMetadata: groundingMetadata
-    };
+     // Extract actual URLs from grounding metadata
+     const actualUrls = extractUrlsFromGrounding(groundingMetadata);
+     console.log('Actual URLs from grounding:', actualUrls);
+
+     const result = {
+       response: {
+         text: () => responseText
+       },
+       groundingMetadata: groundingMetadata,
+       actualUrls: actualUrls
+     };
 
     const response = result.response;
     let textContent = response.text();
@@ -165,12 +171,17 @@ async function handler(req: NextRequest) {
     // Clean up the response text to extract JSON (matching extension approach)
     textContent = cleanJsonResponse(textContent);
 
-    // Parse and validate the response
-    let factCheckData;
-    try {
-      factCheckData = JSON.parse(textContent);
-      
-      // Validate required fields and set defaults
+     // Parse and validate the response
+     let factCheckData;
+     try {
+       factCheckData = JSON.parse(textContent);
+       
+       // Replace any fake URLs with actual URLs from grounding
+       if (result.actualUrls && result.actualUrls.length > 0) {
+         factCheckData = replaceFakeUrlsWithRealOnes(factCheckData, result.actualUrls);
+       }
+       
+       // Validate required fields and set defaults
       if (!factCheckData.overallRating || typeof factCheckData.overallRating !== 'number') {
         factCheckData.overallRating = 5;
       }
@@ -362,6 +373,104 @@ function cleanJsonResponse(response: string): string {
     
     return cleaned;
   }
+}
+
+// Helper function to extract URLs from grounding metadata
+function extractUrlsFromGrounding(groundingMetadata: any): Array<{url: string, title: string, snippet: string}> {
+  const urls: Array<{url: string, title: string, snippet: string}> = [];
+  
+  if (!groundingMetadata || !groundingMetadata.groundingChunks) {
+    return urls;
+  }
+  
+  try {
+    for (const chunk of groundingMetadata.groundingChunks) {
+      if (chunk.web && chunk.web.uri) {
+        urls.push({
+          url: chunk.web.uri,
+          title: chunk.web.title || 'Untitled',
+          snippet: chunk.web.snippet || ''
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Error extracting URLs from grounding:', error);
+  }
+  
+  return urls;
+}
+
+// Helper function to replace fake URLs with real ones from grounding
+function replaceFakeUrlsWithRealOnes(factCheckData: any, actualUrls: Array<{url: string, title: string, snippet: string}>): any {
+  if (!factCheckData.claims || !Array.isArray(factCheckData.claims)) {
+    return factCheckData;
+  }
+  
+  // Create a mapping of titles to URLs for better matching
+  const urlMap = new Map<string, {url: string, title: string, snippet: string}>();
+  actualUrls.forEach(item => {
+    urlMap.set(item.title.toLowerCase(), item);
+    urlMap.set(item.url, item);
+  });
+  
+  factCheckData.claims.forEach((claim: any) => {
+    if (claim.sources && Array.isArray(claim.sources)) {
+      claim.sources.forEach((source: any) => {
+        // Check if this looks like a fake URL or if we can find a better match
+        if (source.url && (source.url.includes('bls.gov') || source.url.includes('example.com') || 
+            source.url === 'ACTUAL_URL_FROM_SEARCH_RESULTS' || 
+            !source.url.startsWith('http'))) {
+          
+          // Try to find a matching real URL
+          const matchingUrl = findBestMatchingUrl(source, actualUrls);
+          if (matchingUrl) {
+            source.url = matchingUrl.url;
+            source.title = matchingUrl.title;
+            source.summary = matchingUrl.snippet || source.summary;
+            source.searchResult = true;
+          }
+        }
+      });
+    }
+  });
+  
+  return factCheckData;
+}
+
+// Helper function to find the best matching URL based on title or content
+function findBestMatchingUrl(source: any, actualUrls: Array<{url: string, title: string, snippet: string}>): {url: string, title: string, snippet: string} | null {
+  if (!source.title) return actualUrls[0] || null;
+  
+  const sourceTitle = source.title.toLowerCase();
+  
+  // First try exact title match
+  for (const url of actualUrls) {
+    if (url.title.toLowerCase() === sourceTitle) {
+      return url;
+    }
+  }
+  
+  // Then try partial title match
+  for (const url of actualUrls) {
+    if (url.title.toLowerCase().includes(sourceTitle) || sourceTitle.includes(url.title.toLowerCase())) {
+      return url;
+    }
+  }
+  
+  // Finally, try keyword matching
+  const sourceKeywords = sourceTitle.split(' ').filter((word: string) => word.length > 3);
+  for (const url of actualUrls) {
+    const urlKeywords = url.title.toLowerCase().split(' ').filter((word: string) => word.length > 3);
+    const commonKeywords = sourceKeywords.filter((keyword: string) => 
+      urlKeywords.some((urlKeyword: string) => urlKeyword.includes(keyword) || keyword.includes(urlKeyword))
+    );
+    
+    if (commonKeywords.length > 0) {
+      return url;
+    }
+  }
+  
+  return actualUrls[0] || null;
 }
 
 export const POST = withCors(handler);

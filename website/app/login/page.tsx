@@ -14,10 +14,33 @@ function LoginForm() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        // User is signed in, create session cookie
+        // User is signed in, register user and create session cookie
         try {
           const idToken = await user.getIdToken();
           
+          // First, register the user in Firestore
+          console.log('User signed in, attempting to register in Firestore:', user.uid, user.email);
+          try {
+            const registerResponse = await fetch('/api/users/register', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${idToken}`
+              }
+            });
+            
+            if (registerResponse.ok) {
+              const result = await registerResponse.json();
+              console.log('User registration successful:', result);
+            } else {
+              const errorText = await registerResponse.text();
+              console.error('Failed to register user in Firebase:', registerResponse.status, errorText);
+            }
+          } catch (registerError) {
+            console.error('Error registering user:', registerError);
+          }
+
+          // Then create session cookie
           const response = await fetch('/api/auth/session', {
             method: 'POST',
             headers: {
