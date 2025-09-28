@@ -99,7 +99,7 @@ async function handler(req: NextRequest) {
 
     // Direct REST API call to Gemini with grounding support (matching extension)
     const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
         method: 'POST',
         headers: {
@@ -153,16 +153,16 @@ async function handler(req: NextRequest) {
        groundingMetadata = candidate.groundingMetadata;
      }
 
-     // Extract actual URLs from grounding metadata
-     const actualUrls = extractUrlsFromGrounding(groundingMetadata);
-     console.log('Actual URLs from grounding:', actualUrls);
+     // Extract real sources from grounding metadata (matching extension approach)
+     const realSources = extractRealSourcesFromGrounding(groundingMetadata);
+     console.log('Real sources from grounding:', realSources);
 
      const result = {
        response: {
          text: () => responseText
        },
        groundingMetadata: groundingMetadata,
-       actualUrls: actualUrls
+       realSources: realSources
      };
 
     const response = result.response;
@@ -176,9 +176,16 @@ async function handler(req: NextRequest) {
      try {
        factCheckData = JSON.parse(textContent);
        
-       // Replace any fake URLs with actual URLs from grounding
-       if (result.actualUrls && result.actualUrls.length > 0) {
-         factCheckData = replaceFakeUrlsWithRealOnes(factCheckData, result.actualUrls);
+       // Use real sources from grounding for claims
+       if (result.realSources && result.realSources.length > 0 && factCheckData.claims) {
+         factCheckData.claims = factCheckData.claims.map((claim: any) => {
+           const realSourcesForClaim = getRealSourcesForClaim(claim, result.realSources);
+           if (realSourcesForClaim.length > 0) {
+             claim.sources = realSourcesForClaim;
+             claim.groundingUsed = true;
+           }
+           return claim;
+         });
        }
        
        // Validate required fields and set defaults
@@ -200,7 +207,7 @@ async function handler(req: NextRequest) {
       
       // Validate and normalize each claim
       factCheckData.claims = factCheckData.claims.map((claim: any) => {
-        return {
+  return {
           claim: typeof claim.claim === 'string' ? claim.claim : "Unable to analyze claim",
           rating: typeof claim.rating === 'number' ? Math.max(1, Math.min(10, claim.rating)) : 5,
           confidence: typeof claim.confidence === 'number' ? Math.max(0, Math.min(1, claim.confidence)) : 0.5,
@@ -323,162 +330,154 @@ function cleanJsonResponse(response: string): string {
     }
   }
   
-  // Try to parse first to see if it's already valid
+  // Additional cleaning for common JSON issues
   try {
+    // Try to parse and re-stringify to validate and clean
     const parsed = JSON.parse(cleaned);
     return JSON.stringify(parsed);
-  } catch (error) {
-    console.warn('JSON parsing failed, attempting to fix:', error);
+  } catch (error: any) {
+    // If parsing fails, try to fix common issues
+    console.warn('JSON parsing failed, attempting to fix:', error.message);
     
-    // Check if the response looks like it was truncated
-    if (cleaned.length > 1000 && !cleaned.endsWith('}') && !cleaned.endsWith(']')) {
-      console.warn('Response appears to be truncated, attempting to complete it');
-      
-      // Try to find the last complete object/array and close it
-      let truncated = cleaned;
-      
-      // Count unclosed brackets and braces
-      const openBrackets = (truncated.match(/\[/g) || []).length;
-      const closeBrackets = (truncated.match(/\]/g) || []).length;
-      const openBraces = (truncated.match(/\{/g) || []).length;
-      const closeBraces = (truncated.match(/\}/g) || []).length;
-      
-      // Add missing closing brackets/braces
-      for (let i = 0; i < openBrackets - closeBrackets; i++) {
-        truncated += ']';
+    // Fix common issues:
+    // 1. Unescaped quotes in strings
+    cleaned = cleaned.replace(/([^\\])"([^"]*)"([^,}\]]*)/g, (match, before, content, after) => {
+      // Only fix if it looks like an unescaped quote in a string value
+      if (before.match(/[:\s]/) && after.match(/[,}\]]/)) {
+        const escapedContent = content.replace(/"/g, '\\"');
+        return `${before}"${escapedContent}"${after}`;
       }
-      for (let i = 0; i < openBraces - closeBraces; i++) {
-        truncated += '}';
-      }
-      
-      // Try to parse the completed version
-      try {
-        const completedParsed = JSON.parse(truncated);
-        console.log('Successfully completed truncated JSON');
-        return JSON.stringify(completedParsed);
-      } catch (completionError) {
-        console.warn('Failed to complete truncated JSON:', completionError);
-      }
-    }
+      return match;
+    });
     
-    // More conservative approach - only fix obvious issues
-    let fixed = cleaned;
+    // 2. Remove trailing commas
+    cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
     
-    // 1. Remove trailing commas before closing brackets/braces
-    fixed = fixed.replace(/,(\s*[}\]])/g, '$1');
+    // 3. Fix missing quotes around keys
+    cleaned = cleaned.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
     
-    // 2. Fix missing quotes around object keys (but be more careful)
-    fixed = fixed.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
-    
-    // 3. Try to find the complete JSON object/array by counting brackets
-    const lines = fixed.split('\n');
+    // 4. Remove any non-JSON content that might be mixed in
+    const lines = cleaned.split('\n');
     const jsonLines = [];
-    let bracketCount = 0;
-    let braceCount = 0;
     let inJson = false;
-    let foundStart = false;
     
     for (const line of lines) {
       const trimmed = line.trim();
-      
-      // Start counting when we find the opening bracket/brace
-      if (!foundStart && (trimmed.startsWith('[') || trimmed.startsWith('{'))) {
-        foundStart = true;
+      if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
         inJson = true;
       }
-      
       if (inJson) {
         jsonLines.push(line);
-        
-        // Count brackets and braces
-        for (const char of line) {
-          if (char === '[') bracketCount++;
-          if (char === ']') bracketCount--;
-          if (char === '{') braceCount++;
-          if (char === '}') braceCount--;
-        }
-        
-        // Stop when we have balanced brackets and braces
-        if (foundStart && bracketCount === 0 && braceCount === 0) {
+        if (trimmed.endsWith(']') || trimmed.endsWith('}')) {
           break;
         }
       }
     }
     
     if (jsonLines.length > 0) {
-      fixed = jsonLines.join('\n');
+      cleaned = jsonLines.join('\n');
     }
     
-    // Try parsing the fixed version
-    try {
-      const parsed = JSON.parse(fixed);
-      return JSON.stringify(parsed);
-    } catch (secondError) {
-      console.error('JSON cleaning failed completely:', secondError);
-      console.error('Original response length:', response.length);
-      console.error('Cleaned response length:', fixed.length);
-      console.error('First 500 chars of cleaned:', fixed.substring(0, 500));
-      console.error('Last 200 chars of cleaned:', fixed.substring(Math.max(0, fixed.length - 200)));
-      
-      // Try to salvage what we can from the partial JSON
-      try {
-        // Look for the last complete claim or object
-        const lastCompleteBrace = fixed.lastIndexOf('}');
-        const lastCompleteBracket = fixed.lastIndexOf(']');
-        const lastComplete = Math.max(lastCompleteBrace, lastCompleteBracket);
-        
-        if (lastComplete > 0) {
-          // Try to find a complete structure up to the last complete element
-          let salvaged = fixed.substring(0, lastComplete + 1);
-          
-          // If we're in the middle of an array, try to close it
-          if (lastCompleteBracket > lastCompleteBrace) {
-            // We're in an array, try to close it properly
-            const openBrackets = (salvaged.match(/\[/g) || []).length;
-            const closeBrackets = (salvaged.match(/\]/g) || []).length;
-            const openBraces = (salvaged.match(/\{/g) || []).length;
-            const closeBraces = (salvaged.match(/\}/g) || []).length;
-            
-            // Add missing closing brackets/braces
-            for (let i = 0; i < openBrackets - closeBrackets; i++) {
-              salvaged += ']';
-            }
-            for (let i = 0; i < openBraces - closeBraces; i++) {
-              salvaged += '}';
-            }
-          }
-          
-          // Try to parse the salvaged JSON
-          const salvagedParsed = JSON.parse(salvaged);
-          console.log('Successfully salvaged partial JSON');
-          return JSON.stringify(salvagedParsed);
-        }
-      } catch (salvageError) {
-        console.error('Salvage attempt failed:', salvageError);
-      }
-      
-      // Return a fallback JSON structure
-      return JSON.stringify({
-        overallRating: 5,
-        overallConfidence: 0.1,
-        overallAssessment: "Unable to parse response",
-        overallExplanation: "The AI response could not be parsed as valid JSON",
-        claims: [{
-          claim: "Response parsing failed",
-          rating: 1,
-          confidence: 0.1,
-          explanation: "The AI response was malformed and could not be processed",
-          sources: [],
-          keyEvidence: [],
-          groundingUsed: false
-        }],
-        searchMetadata: null
-      });
-    }
+    return cleaned;
   }
 }
 
-// Helper function to extract URLs from grounding metadata
+// Extract real sources from grounding metadata (matching extension)
+function extractRealSourcesFromGrounding(groundingMetadata: any) {
+  if (!groundingMetadata || !groundingMetadata.webSearchQueries) {
+    return [];
+  }
+  
+  const realSources: any[] = [];
+  
+  // Extract sources from web search grounding
+  groundingMetadata.webSearchQueries.forEach((query: any) => {
+    if (query.webSearchResults) {
+      query.webSearchResults.forEach((result: any) => {
+        if (result.url && result.title && isValidUrl(result.url)) {
+          realSources.push({
+            url: result.url,
+            title: result.title,
+            snippet: result.snippet || '',
+            credibilityScore: calculateCredibilityScore(result.url, result.title),
+            relevanceScore: 8, // Default high relevance for search results
+            summary: result.snippet || '',
+            searchResult: true
+          });
+        }
+      });
+    }
+  });
+  
+  return realSources;
+}
+
+// Validate URL format and accessibility
+function isValidUrl(url: string) {
+  try {
+    const urlObj = new URL(url);
+    // Check if it's a valid HTTP/HTTPS URL
+    return urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
+  } catch (error) {
+    return false;
+  }
+}
+
+// Calculate credibility score based on URL domain and title
+function calculateCredibilityScore(url: string, title: string) {
+  let score = 5; // Base score
+  
+  // Government sources
+  if (url.includes('.gov')) score = 10;
+  // Educational institutions
+  else if (url.includes('.edu')) score = 9;
+  // Major news organizations
+  else if (url.includes('reuters.com') || url.includes('ap.org') || url.includes('bbc.com') || 
+           url.includes('npr.org') || url.includes('pbs.org') || url.includes('wsj.com') ||
+           url.includes('nytimes.com') || url.includes('washingtonpost.com')) score = 9;
+  // Scientific journals
+  else if (url.includes('nature.com') || url.includes('science.org') || url.includes('pubmed.ncbi.nlm.nih.gov')) score = 10;
+  // International organizations
+  else if (url.includes('who.int') || url.includes('un.org') || url.includes('worldbank.org')) score = 9;
+  // Wikipedia (moderate credibility)
+  else if (url.includes('wikipedia.org')) score = 6;
+  // Social media (lower credibility)
+  else if (url.includes('twitter.com') || url.includes('facebook.com') || url.includes('instagram.com')) score = 3;
+  
+  return Math.max(1, Math.min(10, score));
+}
+
+// Get real sources for a specific claim
+function getRealSourcesForClaim(claim: any, realSources: any[]) {
+  if (!realSources || realSources.length === 0) {
+    return [];
+  }
+  
+  // Simple keyword matching to find relevant sources
+  const claimKeywords = (claim.claim || '').toLowerCase().split(/\s+/);
+  const relevantSources = realSources.filter((source: any) => {
+    const sourceText = (source.title + ' ' + source.summary).toLowerCase();
+    return claimKeywords.some((keyword: string) => 
+      keyword.length > 3 && sourceText.includes(keyword)
+    );
+  });
+  
+  // Return top 3 most relevant sources with URL validation
+  return relevantSources
+    .filter((source: any) => isValidUrl(source.url)) // Only include valid URLs
+    .sort((a: any, b: any) => b.relevanceScore - a.relevanceScore)
+    .slice(0, 3)
+    .map((source: any) => ({
+      url: source.url.substring(0, 500),
+      title: source.title.substring(0, 200),
+      credibilityScore: source.credibilityScore,
+      relevanceScore: source.relevanceScore,
+      summary: source.summary.substring(0, 300),
+      searchResult: source.searchResult
+    }));
+}
+
+// Helper function to extract URLs from grounding metadata (legacy)
 function extractUrlsFromGrounding(groundingMetadata: any): Array<{url: string, title: string, snippet: string}> {
   const urls: Array<{url: string, title: string, snippet: string}> = [];
   
