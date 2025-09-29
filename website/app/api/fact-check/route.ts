@@ -113,13 +113,10 @@ function extractGrounded(resp: any): {url: string, title: string | null}[] {
     groundingChunks.forEach((chunk: any) => {
       const url = chunk.web?.uri || chunk.source?.url || chunk.url || chunk.uri;
       if (url && isValidUrl(url)) {
-        // Skip Vertex AI redirect URLs in grounding metadata
-        if (!url.includes('vertexaisearch.cloud.google.com/grounding-api-redirect')) {
-          realSources.push({
-            url: url,
-            title: chunk.web?.title || chunk.source?.title || chunk.title || chunk.name || null
-          });
-        }
+        realSources.push({
+          url: url,
+          title: chunk.web?.title || chunk.source?.title || chunk.title || chunk.name || null
+        });
       }
     });
   }
@@ -222,7 +219,7 @@ async function extractClaims(text: string, images?: any[]): Promise<string[]> {
         maxOutputTokens: 1024,
         candidateCount: 1,
         stopSequences: ["END_JSON"],
-        temperature: 0.1
+        temperature: 0.0
       }
     };
 
@@ -324,10 +321,10 @@ ${text}${dateContext}`;
       parts: [{ text: prompt }]
     }],
     generationConfig: {
-      maxOutputTokens: 3072,
+      maxOutputTokens: 4096,
       candidateCount: 1,
       stopSequences: ["END_JSON"],
-      temperature: 0.1
+      temperature: 0.0
     },
     tools: [{
       googleSearch: {}
@@ -413,7 +410,7 @@ ${text}${dateContext}`;
           };
         });
       } else {
-        // If no real URLs found, use grounded sources
+        // If no real URLs found, use grounded sources (including redirect URLs as fallback)
         claimSources = grounded.map((g: {url: string, title: string | null}) => ({
           url: g.url,
           title: g.title || new URL(g.url).hostname.replace(/^www\./, ''),
