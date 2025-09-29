@@ -1,80 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/firebaseAdmin';
 import { requireAuth, createAuthResponse } from '@/lib/auth';
-import Stripe from 'stripe';
-import { FieldValue } from 'firebase-admin/firestore';
+import { getStripe, getOrCreateStripeCustomer } from '@/lib/stripe';
+import { createCorsResponse, createCorsErrorResponse } from '@/lib/cors';
 
 export const runtime = 'nodejs';
-
-// Initialize Stripe
-function getStripe(): Stripe {
-  if (!process.env.STRIPE_SECRET) {
-    throw new Error('STRIPE_SECRET environment variable is required');
-  }
-  return new Stripe(process.env.STRIPE_SECRET, {
-    apiVersion: '2023-10-16'
-  });
-}
-
-// Helper function to get or create Stripe customer
-async function getOrCreateStripeCustomer(uid: string, email: string): Promise<string> {
-  const userDoc = await db.collection('users').doc(uid).get();
-  const userData = userDoc.data();
-  
-  // Determine if we're in test or live mode
-  const isTestMode = process.env.STRIPE_SECRET?.startsWith('sk_test_');
-  const customerField = isTestMode ? 'stripe.test.customerId' : 'stripe.live.customerId';
-  let stripeCustomerId = userData?.[customerField];
-  
-  // If no customer ID found, check for old field names and migrate them
-  if (!stripeCustomerId) {
-    if (isTestMode && userData?.stripeTestCustomerId) {
-      // Migrate old test customer ID
-      stripeCustomerId = userData.stripeTestCustomerId;
-      console.log(`Migrating old test customer ID for user ${uid}: ${stripeCustomerId}`);
-    } else if (!isTestMode && userData?.stripeCustomerId) {
-      // Migrate old live customer ID
-      stripeCustomerId = userData.stripeCustomerId;
-      console.log(`Migrating old live customer ID for user ${uid}: ${stripeCustomerId}`);
-    }
-  }
-  
-  // If still no customer ID, create one
-  if (!stripeCustomerId) {
-    const stripe = getStripe();
-    const customer = await stripe.customers.create({
-      email,
-      metadata: { 
-        uid,
-        mode: isTestMode ? 'test' : 'live'
-      }
-    });
-    stripeCustomerId = customer.id;
-    console.log(`Created new ${isTestMode ? 'test' : 'live'} customer for user ${uid}: ${stripeCustomerId}`);
-  }
-  
-  // Update user document with new field structure and clean up old fields
-  const updates = {
-    [customerField]: stripeCustomerId,
-    updatedAt: new Date()
-  };
-  
-  // Clean up old field names
-  if (userData?.stripeCustomerId || userData?.stripeTestCustomerId) {
-    if (isTestMode && userData?.stripeCustomerId) {
-      updates['stripeCustomerId'] = FieldValue.delete();
-    }
-    if (userData?.stripeTestCustomerId) {
-      updates['stripeTestCustomerId'] = FieldValue.delete();
-    }
-  }
-  
-  // Update user document with Stripe customer info
-  // Note: User document should already exist from registration after Google sign-up
-  await db.collection('users').doc(uid).update(updates);
-  
-  return stripeCustomerId;
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -130,12 +59,12 @@ export async function POST(request: NextRequest) {
       },
     });
     
-    return NextResponse.json({ url: session.url });
+    return createCorsResponse({ url: session.url });
   } catch (error) {
     if (error instanceof Error && error.message.includes('authorization')) {
       return createAuthResponse(error.message);
     }
     console.error('Error creating checkout session:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return createCorsErrorResponse('Internal server error', 500);
   }
 }

@@ -52,7 +52,7 @@ export default function AuthPage() {
           // This is an extension login, use the new finalize endpoint
           try {
             const idToken = await user.getIdToken();
-            const response = await fetch('/api/auth/finalize', {
+            const response = await fetch('/api/auth?action=finalize', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
