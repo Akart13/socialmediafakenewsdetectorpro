@@ -27,7 +27,7 @@ async function handleFactCheck(data, sendResponse) {
       throw new Error('Invalid data provided');
     }
     
-    const { text, images, imageTexts, platform } = data;
+    const { text, images, imageTexts, platform, postDate } = data;
     
     // Validate required fields
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
@@ -43,7 +43,8 @@ async function handleFactCheck(data, sendResponse) {
       body: JSON.stringify({ 
         text: text,
         images: images || [],
-        imageTexts: imageTexts || []
+        imageTexts: imageTexts || [],
+        postDate: postDate
       }),
       credentials: 'include' // Send session cookie
     });

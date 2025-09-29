@@ -243,20 +243,15 @@ async function extractClaims(text: string, images?: any[]): Promise<string[]> {
 }
 
 // Function to perform combined fact-checking with claim extraction
-async function performCombinedFactCheck(text: string, images?: any[]): Promise<any> {
-  // First, extract claims from the post
-  const extractedClaims = await extractClaims(text, images);
-  
-  if (!extractedClaims || extractedClaims.length === 0) {
-    return {
-      overallRating: getRatingFromAssessment("Unverifiable"),
-      overallConfidence: 0.5,
-      overallAssessment: "Unverifiable",
-      overallExplanation: "No verifiable claims found in this post",
-      claims: [],
-      sources: []
-    };
-  }
+async function performCombinedFactCheck(text: string, images?: any[], postDate?: string): Promise<any> {
+  // Format the post date for the prompt
+  const dateContext = postDate ? `\n\nPost Date: ${new Date(postDate).toLocaleDateString('en-US', { 
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })}` : '';
 
   const prompt = `Return JSON only:
 {
@@ -274,15 +269,20 @@ async function performCombinedFactCheck(text: string, images?: any[]): Promise<a
 }
 
 Rules:
-- Evaluate ONLY the provided claims (2-4). Do not invent new claims.
+- Extract 2-4 most important factual claims from the post
+- Evaluate each claim individually with ratings and explanations
 - Use ONLY URLs present in Google Search grounding results; do NOT fabricate URLs.
 - Prefer authoritative sources; if none grounded → set sources=[] and confidence ≤0.4.
 - Keep explanations ≤2 sentences; be concise.
 - If most claims lack support, set overallAssessment="Unverifiable".
+- Focus on factual claims that can be researched and verified, not opinions or subjective statements.
+- Consider the post date when evaluating claims - older posts may have outdated information.
+- For recent events, prioritize current information and recent sources.
+
 END_JSON after the closing brace.
 
-Claims to check:
-${extractedClaims.map(claim => `"${claim}"`).join('\n')}`;
+Post to analyze:
+${text}${dateContext}`;
 
   // Direct REST API call with grounding enabled
   const requestBody = {
@@ -322,70 +322,6 @@ ${extractedClaims.map(claim => `"${claim}"`).join('\n')}`;
   // Extract raw text from response
   const rawText = responseData.candidates?.[0]?.content?.parts?.[0]?.text || "";
   console.log("Raw text content:", rawText);
-  
-  if (!rawText || rawText.length < 20) {
-    // Retry once without grounding if first attempt fails
-    const retryBody = {
-      contents: [{
-        role: "user", 
-        parts: [{ text: prompt }]
-      }],
-       generationConfig: {
-         maxOutputTokens: 3072,
-         candidateCount: 1,
-         stopSequences: ["END_JSON"]         
-        }
-    };
-
-    const retryResponse = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(retryBody)
-    });
-
-    if (retryResponse.ok) {
-      const retryData = await retryResponse.json();
-      const retryText = retryData.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      if (retryText && retryText.length >= 20) {
-        // Use retry response for parsing
-        const textNoFences = retryText.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, "$1").trim();
-        let modelJson; 
-        try { 
-          modelJson = JSON.parse(textNoFences); 
-        } catch { 
-          modelJson = { 
-            overallAssessment: "Unverifiable",
-            overallConfidence: 0.5,
-            claims: []
-          }; 
-        }
-        
-        // Process claims for retry case
-        const retryProcessedClaims = (modelJson.claims || []).map((claim: any) => ({
-          claim: claim.claim || "Unable to analyze claim",
-          credibilityRating: {
-            rating: claim.rating || 5,
-            confidence: claim.confidence || 0.5,
-            explanation: claim.explanation || "No analysis available",
-            keyEvidence: claim.keyEvidence || [],
-            groundingUsed: false
-          },
-          sources: []
-        }));
-
-        return {
-          overallRating: getRatingFromAssessment(modelJson.overallAssessment),
-          overallConfidence: modelJson.overallConfidence || 0.5,
-          overallAssessment: modelJson.overallAssessment || "Unverifiable",
-          overallExplanation: getExplanationFromAssessment(modelJson.overallAssessment),
-          claims: retryProcessedClaims,
-          sources: [] // No grounding in retry
-        };
-      }
-    }
-  }
 
   // Build the final result from grounding metadata (not the model's sources)
   const grounded = extractGrounded(responseData);
@@ -492,14 +428,14 @@ async function handler(req: NextRequest) {
       }, { merge: true });
     }
 
-    const { text, images } = await req.json();
+    const { text, images, postDate } = await req.json();
     
     if (!text || typeof text !== "string" || text.length < 5) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
 
     // Use the new combined fact-checking approach
-    const result = await performCombinedFactCheck(text, images);
+    const result = await performCombinedFactCheck(text, images, postDate);
 
     // Convert to format expected by extension
     const extensionFormat = {

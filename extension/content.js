@@ -190,6 +190,7 @@ class SocialMediaExtractor {
     
     const text = this.extractText(post);
     const images = this.extractImages(post);
+    const postDate = this.extractPostDate(post);
     
     // Extract text from images if any (and if enabled)
     let imageTexts = [];
@@ -203,6 +204,7 @@ class SocialMediaExtractor {
             images: images,
             imageTexts: [],
             platform: this.platform,
+            postDate: postDate,
             error: 'Extension context invalidated'
           };
         }
@@ -221,6 +223,7 @@ class SocialMediaExtractor {
             images: images,
             imageTexts: [],
             platform: this.platform,
+            postDate: postDate,
             error: 'Extension context invalidated'
           };
         }
@@ -246,6 +249,7 @@ class SocialMediaExtractor {
       imageTexts: imageTexts || [],
       platform: this.platform,
       url: window.location.href,
+      postDate: postDate,
       timestamp: new Date().toISOString()
     };
   }
@@ -286,6 +290,67 @@ class SocialMediaExtractor {
     return images;
   }
 
+  extractPostDate(post) {
+    try {
+      switch (this.platform) {
+        case 'twitter':
+          // Try multiple selectors for Twitter post dates
+          const timeElement = post.querySelector('time') || 
+                            post.querySelector('[datetime]') ||
+                            post.querySelector('[data-testid="tweet"] time') ||
+                            post.querySelector('a[href*="/status/"] time');
+          
+          if (timeElement) {
+            const datetime = timeElement.getAttribute('datetime') || 
+                           timeElement.getAttribute('title') ||
+                           timeElement.textContent;
+            if (datetime) {
+              return new Date(datetime).toISOString();
+            }
+          }
+          break;
+          
+        case 'instagram':
+          // Try to find Instagram post date
+          const instagramTime = post.querySelector('time') ||
+                              post.querySelector('[datetime]') ||
+                              post.querySelector('a[href*="/p/"] time');
+          
+          if (instagramTime) {
+            const datetime = instagramTime.getAttribute('datetime') || 
+                           instagramTime.getAttribute('title') ||
+                           instagramTime.textContent;
+            if (datetime) {
+              return new Date(datetime).toISOString();
+            }
+          }
+          break;
+          
+        case 'facebook':
+          // Try to find Facebook post date
+          const facebookTime = post.querySelector('time') ||
+                             post.querySelector('[datetime]') ||
+                             post.querySelector('a[href*="/posts/"] time') ||
+                             post.querySelector('[data-testid="post_message"] time');
+          
+          if (facebookTime) {
+            const datetime = facebookTime.getAttribute('datetime') || 
+                           facebookTime.getAttribute('title') ||
+                           facebookTime.textContent;
+            if (datetime) {
+              return new Date(datetime).toISOString();
+            }
+          }
+          break;
+      }
+    } catch (error) {
+      console.warn('Failed to extract post date:', error);
+    }
+    
+    // Fallback to current time if date extraction fails
+    return new Date().toISOString();
+  }
+
   async sendFactCheckRequest(data) {
     return new Promise((resolve, reject) => {
       // Check if extension context is still valid
@@ -302,6 +367,7 @@ class SocialMediaExtractor {
           imageTexts: data.imageTexts || [],
           platform: data.platform,
           url: data.url,
+          postDate: data.postDate,
           timestamp: data.timestamp
         }
       }, (response) => {
