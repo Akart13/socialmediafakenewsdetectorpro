@@ -40,25 +40,86 @@ function extractGrounded(resp: any): {url: string, title: string | null}[] {
   const c0 = resp?.candidates?.[0];
   const gm = c0?.groundingMetadata || {};
 
-  const web = Array.isArray(gm.web?.searchResults) ? gm.web.searchResults : [];
-  const chunks = Array.isArray(gm.groundingChunks) ? gm.groundingChunks : [];
+  console.log("=== EXTRACTING GROUNDED SOURCES ===");
+  console.log("Grounding metadata structure:", JSON.stringify(gm, null, 2));
 
-  const items = [
-    ...web.map((r: any) => ({ url: r.url || r.uri, title: r.title || null })),
-    ...chunks.map((ch: any) => ({ url: ch.web?.uri || ch.source?.url, title: ch.web?.title || ch.source?.title || null })),
-  ];
+  // Try multiple possible structures for grounding metadata
+  const webSearchQueries = gm.webSearchQueries || gm.web?.searchQueries || [];
+  const webSearchResults = gm.webSearchResults || gm.web?.searchResults || [];
+  const groundingChunks = gm.groundingChunks || gm.grounding_chunks || [];
 
+  console.log("Web search queries:", webSearchQueries.length);
+  console.log("Web search results:", webSearchResults.length);
+  console.log("Grounding chunks:", groundingChunks.length);
+
+  const realSources: {url: string, title: string | null}[] = [];
+
+  // Extract from web search queries (primary method)
+  if (Array.isArray(webSearchQueries)) {
+    webSearchQueries.forEach((query: any) => {
+      if (query.webSearchResults && Array.isArray(query.webSearchResults)) {
+        query.webSearchResults.forEach((result: any) => {
+          if (result.url && isValidUrl(result.url)) {
+            realSources.push({
+              url: result.url,
+              title: result.title || null
+            });
+          }
+        });
+      }
+    });
+  }
+
+  // Extract from direct web search results
+  if (Array.isArray(webSearchResults)) {
+    webSearchResults.forEach((result: any) => {
+      if (result.url && isValidUrl(result.url)) {
+        realSources.push({
+          url: result.url,
+          title: result.title || null
+        });
+      }
+    });
+  }
+
+  // Extract from grounding chunks
+  if (Array.isArray(groundingChunks)) {
+    groundingChunks.forEach((chunk: any) => {
+      const url = chunk.web?.uri || chunk.source?.url || chunk.url;
+      if (url && isValidUrl(url)) {
+        realSources.push({
+          url: url,
+          title: chunk.web?.title || chunk.source?.title || null
+        });
+      }
+    });
+  }
+
+  // Remove duplicates (allow redirector URLs)
   const clean: {url: string, title: string | null}[] = [];
   const seen = new Set<string>();
-  for (const it of items) {
-    const u = it.url;
-    if (!u || !/^https?:\/\//i.test(u)) continue;
-    if (u.includes("vertexaisearch.cloud.google.com/grounding-api-redirect")) continue; // drop redirectors
-    if (seen.has(u)) continue;
-    seen.add(u);
-    clean.push({ url: u, title: it.title || null });
+  
+  for (const source of realSources) {
+    const url = source.url;
+    if (!url || !isValidUrl(url)) continue;
+    if (seen.has(url)) continue;
+    seen.add(url);
+    clean.push(source);
   }
+
+  console.log("Extracted sources:", clean.length);
+  console.log("Final clean sources:", JSON.stringify(clean, null, 2));
+
   return clean.slice(0, 5);
+}
+
+function isValidUrl(url: string): boolean {
+  try {
+    const urlObj = new URL(url);
+    return urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
+  } catch (error) {
+    return false;
+  }
 }
 
 const DAILY_FREE_LIMIT = 5;
