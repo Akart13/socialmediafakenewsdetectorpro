@@ -348,19 +348,31 @@ ${text}${dateContext}`;
 
   // Process claims and add grounded sources
   const processedClaims = (body.claims || []).map((claim: any) => {
+    // Create a map of grounded sources for quick lookup
+    const groundedMap = new Map();
+    grounded.forEach((g: {url: string, title: string | null}) => {
+      groundedMap.set(g.url, g.title);
+    });
+
     // Use the AI's sources if available, otherwise use grounded sources
     const claimSources = claim.sources && claim.sources.length > 0 
-      ? claim.sources.map((url: string) => ({
-          url: url,
-          title: new URL(url).hostname.replace(/^www\./, ''),
-          credibilityScore: 7,
-          relevanceScore: 8,
-          summary: "Fact-checking source",
-          searchResult: true
-        }))
+      ? claim.sources.map((url: string) => {
+          // Try to find the title from grounded sources first
+          const groundedTitle = groundedMap.get(url);
+          const title = groundedTitle || new URL(url).hostname.replace(/^www\./, '');
+          
+          return {
+            url: url,
+            title: title,
+            credibilityScore: 7,
+            relevanceScore: 8,
+            summary: "Fact-checking source",
+            searchResult: true
+          };
+        })
       : grounded.map((g: {url: string, title: string | null}) => ({
           url: g.url,
-          title: g.title || "Source",
+          title: g.title || new URL(g.url).hostname.replace(/^www\./, ''),
           credibilityScore: 7,
           relevanceScore: 8,
           summary: "Fact-checking source",
