@@ -283,36 +283,34 @@ async function performCombinedFactCheck(text: string, images?: any[], postDate?:
     minute: '2-digit'
   })}` : '';
 
-  const prompt = `Return JSON only:
-{
-  "overallAssessment": "True" | "Likely True" | "Mixed" | "Likely False" | "False" | "Unverifiable",
-  "overallConfidence": 0.0-1.0,
-  "claims": [
-    {
-      "claim": "…",
-      "rating": 1-10,
-      "confidence": 0.0-1.0,
-      "explanation": "≤2 sentences",
-      "sources": ["url1","url2"]   // ≤2, ONLY from grounded results
-    }
-  ]
-}
+        const prompt = `Return JSON only. No markdown, no triple backticks, no preface or postscript. Minify JSON.
 
-Rules:
-- Extract 2-4 most important factual claims from the post
-- Evaluate each claim individually with ratings and explanations
-- Use ONLY URLs present in Google Search grounding results; do NOT fabricate URLs.
-- Prefer authoritative sources; if none grounded → set sources=[] and confidence ≤0.4.
-- Keep explanations ≤2 sentences; be concise.
-- If most claims lack support, set overallAssessment="Unverifiable".
-- Focus on factual claims that can be researched and verified, not opinions or subjective statements.
-- Consider the post date when evaluating claims - older posts may have outdated information.
-- For recent events, prioritize current information and recent sources.
+        {
+          "oa": "True" | "Likely True" | "Mixed" | "Likely False" | "False" | "Unverifiable",
+          "oc": 0.0-1.0,
+          "claims": [
+            {
+              "c": "claim text",
+              "r": 1-10,
+              "conf": 0.0-1.0,
+              "exp": "≤12 words",
+              "src": ["url1","url2"]
+            }
+          ]
+        }
 
-END_JSON after the closing brace.
+        Rules:
+        - Max claims: 2-3
+        - Extract most important factual claims only
+        - Use direct publisher URLs only (no shortened or redirect links). Keep to domain + path, no tracking params.
+        - Use ONLY URLs present in Google Search grounding results; do NOT fabricate URLs.
+        - Prefer authoritative sources; if none grounded → set src=[] and conf ≤0.4.
+        - If most claims lack support, set oa="Unverifiable".
+        - Focus on factual claims that can be researched and verified, not opinions or subjective statements.
+        - Consider the post date when evaluating claims - older posts may have outdated information.
 
-Post to analyze:
-${text}${dateContext}`;
+        Post to analyze:
+        ${text}${dateContext}`;
 
   // Direct REST API call with grounding enabled
   const requestBody = {
@@ -369,8 +367,8 @@ ${text}${dateContext}`;
     body = JSON.parse(raw); 
   } catch { 
     body = { 
-      overallAssessment: "Unverifiable",
-      overallConfidence: 0.5,
+      oa: "Unverifiable",
+      oc: 0.5,
       claims: []
     }; 
   }
@@ -388,9 +386,9 @@ ${text}${dateContext}`;
     // Use the AI's sources if available, otherwise use grounded sources
     let claimSources = [];
     
-    if (claim.sources && claim.sources.length > 0) {
+    if (claim.src && claim.src.length > 0) {
       // Filter out Vertex AI redirect URLs and only use real URLs
-      const realUrls = claim.sources.filter((url: string) => 
+      const realUrls = claim.src.filter((url: string) => 
         !url.includes('vertexaisearch.cloud.google.com/grounding-api-redirect')
       );
       
@@ -433,11 +431,11 @@ ${text}${dateContext}`;
     }
 
     return {
-      claim: claim.claim || "Unable to analyze claim",
+      claim: claim.c || "Unable to analyze claim",
       credibilityRating: {
-        rating: claim.rating || 5,
-        confidence: claim.confidence || 0.5,
-        explanation: claim.explanation || "No analysis available",
+        rating: claim.r || 5,
+        confidence: claim.conf || 0.5,
+        explanation: claim.exp || "No analysis available",
         keyEvidence: claim.keyEvidence || [],
         groundingUsed: grounded.length > 0
       },
@@ -446,10 +444,10 @@ ${text}${dateContext}`;
   });
 
   return {
-    overallRating: getRatingFromAssessment(body.overallAssessment),
-    overallConfidence: body.overallConfidence || 0.5,
-    overallAssessment: body.overallAssessment || "Unverifiable",
-    overallExplanation: getExplanationFromAssessment(body.overallAssessment),
+    overallRating: getRatingFromAssessment(body.oa),
+    overallConfidence: body.oc || 0.5,
+    overallAssessment: body.oa || "Unverifiable",
+    overallExplanation: getExplanationFromAssessment(body.oa),
     claims: processedClaims,
     sources: grounded.map(g => g.url)
   };
