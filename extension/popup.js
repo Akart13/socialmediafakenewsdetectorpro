@@ -119,13 +119,11 @@ class PopupManager {
   async loadSettings() {
     try {
       const result = await chrome.storage.sync.get([
-        'autoCheck',
         'showImages',
         'fastMode'
       ]);
 
       // Load settings
-      document.getElementById('autoCheck').checked = result.autoCheck || false;
       document.getElementById('showImages').checked = result.showImages !== false; // Default to true
       document.getElementById('fastMode').checked = result.fastMode || false;
       
@@ -165,7 +163,6 @@ class PopupManager {
     try {
       const fastMode = document.getElementById('fastMode').checked;
       const settings = {
-        autoCheck: document.getElementById('autoCheck').checked,
         showImages: fastMode ? false : document.getElementById('showImages').checked,
         fastMode: fastMode
       };

@@ -81,10 +81,9 @@ class SocialMediaExtractor {
 
   async getSettings() {
     return new Promise((resolve) => {
-      chrome.storage.sync.get(['showImages', 'autoCheck', 'fastMode'], (result) => {
+      chrome.storage.sync.get(['showImages', 'fastMode'], (result) => {
         resolve({
           showImages: result.showImages !== false, // Default to true
-          autoCheck: result.autoCheck || false,
           fastMode: result.fastMode || false
         });
       });

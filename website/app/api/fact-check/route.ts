@@ -43,15 +43,44 @@ function extractGrounded(resp: any): {url: string, title: string | null}[] {
   console.log("=== EXTRACTING GROUNDED SOURCES ===");
   console.log("Grounding metadata structure:", JSON.stringify(gm, null, 2));
 
-  // Try multiple possible structures for grounding metadata
+  const realSources: {url: string, title: string | null}[] = [];
+
+  // Helper function to extract sources from any object structure
+  function extractSourcesFromObject(obj: any, path: string = '') {
+    if (!obj || typeof obj !== 'object') return;
+    
+    // Look for common source patterns
+    if (obj.url && isValidUrl(obj.url)) {
+      realSources.push({
+        url: obj.url,
+        title: obj.title || obj.name || obj.headline || null
+      });
+    }
+    
+    // Look for nested arrays of sources
+    if (Array.isArray(obj)) {
+      obj.forEach((item, index) => extractSourcesFromObject(item, `${path}[${index}]`));
+    } else if (typeof obj === 'object') {
+      Object.keys(obj).forEach(key => {
+        if (key.toLowerCase().includes('source') || 
+            key.toLowerCase().includes('result') || 
+            key.toLowerCase().includes('url') ||
+            key.toLowerCase().includes('web')) {
+          extractSourcesFromObject(obj[key], `${path}.${key}`);
+        }
+      });
+    }
+  }
+
+  // Extract from all possible grounding metadata structures
+  extractSourcesFromObject(gm);
+
+  // Also try specific known structures
   const webSearchQueries = gm.webSearchQueries || gm.web?.searchQueries || [];
   const webSearchResults = gm.webSearchResults || gm.web?.searchResults || [];
   const groundingChunks = gm.groundingChunks || gm.grounding_chunks || [];
 
-
-  const realSources: {url: string, title: string | null}[] = [];
-
-  // Extract from web search queries (primary method)
+  // Extract from web search queries
   if (Array.isArray(webSearchQueries)) {
     webSearchQueries.forEach((query: any) => {
       if (query.webSearchResults && Array.isArray(query.webSearchResults)) {
@@ -59,7 +88,7 @@ function extractGrounded(resp: any): {url: string, title: string | null}[] {
           if (result.url && isValidUrl(result.url)) {
             realSources.push({
               url: result.url,
-              title: result.title || null
+              title: result.title || result.name || result.headline || null
             });
           }
         });
@@ -73,7 +102,7 @@ function extractGrounded(resp: any): {url: string, title: string | null}[] {
       if (result.url && isValidUrl(result.url)) {
         realSources.push({
           url: result.url,
-          title: result.title || null
+          title: result.title || result.name || result.headline || null
         });
       }
     });
@@ -82,17 +111,20 @@ function extractGrounded(resp: any): {url: string, title: string | null}[] {
   // Extract from grounding chunks
   if (Array.isArray(groundingChunks)) {
     groundingChunks.forEach((chunk: any) => {
-      const url = chunk.web?.uri || chunk.source?.url || chunk.url;
+      const url = chunk.web?.uri || chunk.source?.url || chunk.url || chunk.uri;
       if (url && isValidUrl(url)) {
-        realSources.push({
-          url: url,
-          title: chunk.web?.title || chunk.source?.title || null
-        });
+        // Skip Vertex AI redirect URLs in grounding metadata
+        if (!url.includes('vertexaisearch.cloud.google.com/grounding-api-redirect')) {
+          realSources.push({
+            url: url,
+            title: chunk.web?.title || chunk.source?.title || chunk.title || chunk.name || null
+          });
+        }
       }
     });
   }
 
-  // Remove duplicates (allow redirector URLs)
+  // Remove duplicates
   const clean: {url: string, title: string | null}[] = [];
   const seen = new Set<string>();
   
@@ -107,7 +139,7 @@ function extractGrounded(resp: any): {url: string, title: string | null}[] {
   console.log("Extracted sources:", clean.length);
   console.log("Final clean sources:", JSON.stringify(clean, null, 2));
 
-  return clean.slice(0, 3);
+  return clean.slice(0, 5); // Increased from 3 to 5 to get more sources
 }
 
 function isValidUrl(url: string): boolean {
@@ -189,7 +221,8 @@ async function extractClaims(text: string, images?: any[]): Promise<string[]> {
       generationConfig: {
         maxOutputTokens: 1024,
         candidateCount: 1,
-        stopSequences: ["END_JSON"]
+        stopSequences: ["END_JSON"],
+        temperature: 0.1
       }
     };
 
@@ -293,7 +326,8 @@ ${text}${dateContext}`;
     generationConfig: {
       maxOutputTokens: 3072,
       candidateCount: 1,
-      stopSequences: ["END_JSON"]
+      stopSequences: ["END_JSON"],
+      temperature: 0.1
     },
     tools: [{
       googleSearch: {}
@@ -355,8 +389,16 @@ ${text}${dateContext}`;
     });
 
     // Use the AI's sources if available, otherwise use grounded sources
-    const claimSources = claim.sources && claim.sources.length > 0 
-      ? claim.sources.map((url: string) => {
+    let claimSources = [];
+    
+    if (claim.sources && claim.sources.length > 0) {
+      // Filter out Vertex AI redirect URLs and only use real URLs
+      const realUrls = claim.sources.filter((url: string) => 
+        !url.includes('vertexaisearch.cloud.google.com/grounding-api-redirect')
+      );
+      
+      if (realUrls.length > 0) {
+        claimSources = realUrls.map((url: string) => {
           // Try to find the title from grounded sources first
           const groundedTitle = groundedMap.get(url);
           const title = groundedTitle || new URL(url).hostname.replace(/^www\./, '');
@@ -369,8 +411,10 @@ ${text}${dateContext}`;
             summary: "Fact-checking source",
             searchResult: true
           };
-        })
-      : grounded.map((g: {url: string, title: string | null}) => ({
+        });
+      } else {
+        // If no real URLs found, use grounded sources
+        claimSources = grounded.map((g: {url: string, title: string | null}) => ({
           url: g.url,
           title: g.title || new URL(g.url).hostname.replace(/^www\./, ''),
           credibilityScore: 7,
@@ -378,6 +422,18 @@ ${text}${dateContext}`;
           summary: "Fact-checking source",
           searchResult: true
         }));
+      }
+    } else {
+      // Fallback to grounded sources
+      claimSources = grounded.map((g: {url: string, title: string | null}) => ({
+        url: g.url,
+        title: g.title || new URL(g.url).hostname.replace(/^www\./, ''),
+        credibilityScore: 7,
+        relevanceScore: 8,
+        summary: "Fact-checking source",
+        searchResult: true
+      }));
+    }
 
     return {
       claim: claim.claim || "Unable to analyze claim",
