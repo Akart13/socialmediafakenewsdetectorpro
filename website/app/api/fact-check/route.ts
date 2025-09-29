@@ -48,9 +48,6 @@ function extractGrounded(resp: any): {url: string, title: string | null}[] {
   const webSearchResults = gm.webSearchResults || gm.web?.searchResults || [];
   const groundingChunks = gm.groundingChunks || gm.grounding_chunks || [];
 
-  console.log("Web search queries:", webSearchQueries.length);
-  console.log("Web search results:", webSearchResults.length);
-  console.log("Grounding chunks:", groundingChunks.length);
 
   const realSources: {url: string, title: string | null}[] = [];
 
@@ -110,7 +107,7 @@ function extractGrounded(resp: any): {url: string, title: string | null}[] {
   console.log("Extracted sources:", clean.length);
   console.log("Final clean sources:", JSON.stringify(clean, null, 2));
 
-  return clean.slice(0, 5);
+  return clean.slice(0, 3);
 }
 
 function isValidUrl(url: string): boolean {
@@ -168,23 +165,17 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
 
-    const prompt = `Fact-check the post below and return your response as valid JSON.
-
-Required JSON format:
-{
-  "verdict": "True" | "Likely True" | "Mixed" | "Likely False" | "False" | "Unverifiable",
-  "rationale": "Your explanation of the fact-check",
-  "sources": ["url1", "url2", "url3"]
-}
+     const prompt = `Return JSON only:
+{"verdict":"…","rationale":"…","sources":[]}
 
 Rules:
-- verdict must be one of the exact values above
-- rationale should be 2-3 sentences explaining your assessment
-- sources should be an array of URLs from your web search (if any)
-- If you cannot verify with reliable web sources, set verdict="Unverifiable" and sources=[]
-- Return ONLY the JSON object, no other text, no markdown, no backticks
+- verdict ∈ {"True","Likely True","Mixed","Likely False","False","Unverifiable"}
+- rationale ≤ 2 sentences (≤ 320 chars)
+- sources: ≤ 3 reliable URLs from your search
+- if not verifiable: verdict="Unverifiable", sources=[]
 
-Post to fact-check:
+Begin JSON now. END_JSON after the closing brace.
+Post:
 ${text}`;
 
     // Direct REST API call with grounding enabled
@@ -194,7 +185,9 @@ ${text}`;
         parts: [{ text: prompt }]
       }],
       generationConfig: {
-        maxOutputTokens: 2048
+        maxOutputTokens: 2048,
+        candidateCount: 1,
+        stopSequences: ["END_JSON"]
       },
       tools: [{
         googleSearch: {}
@@ -218,11 +211,7 @@ ${text}`;
     
     // Log the raw response for debugging
     console.log("=== GEMINI RAW RESPONSE ===");
-    console.log("Full response:", JSON.stringify(responseData, null, 2));
-    console.log("Grounding metadata:", JSON.stringify(responseData.candidates?.[0]?.groundingMetadata, null, 2));
-    console.log("Web search results:", JSON.stringify(responseData.candidates?.[0]?.groundingMetadata?.web?.searchResults, null, 2));
-    console.log("Grounding chunks:", JSON.stringify(responseData.candidates?.[0]?.groundingMetadata?.groundingChunks, null, 2));
-    
+    console.log("Full response:", JSON.stringify(responseData, null, 2));    
     // Extract raw text from response
     const rawText = responseData.candidates?.[0]?.content?.parts?.[0]?.text || "";
     console.log("Raw text content:", rawText);
@@ -234,9 +223,11 @@ ${text}`;
           role: "user", 
           parts: [{ text: prompt }]
         }],
-        generationConfig: {
-          maxOutputTokens: 2048
-        }
+         generationConfig: {
+           maxOutputTokens: 2048,
+           candidateCount: 1,
+           stopSequences: ["END_JSON"]         
+          }
       };
 
       const retryResponse = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
