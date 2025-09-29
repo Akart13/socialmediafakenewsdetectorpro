@@ -1,7 +1,34 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getAuth } from "firebase-admin/auth";
+import { db } from '@/lib/firebaseAdmin';
 
 export const runtime = 'nodejs';
+
+// CORS configuration for all auth endpoints
+export function getCorsHeaders(origin: string | null) {
+  const allowedOrigins = new Set([
+    'chrome-extension://abcdefghijklmnopqrstuvwxyz123456', // Replace with actual extension ID
+    'chrome-extension://nkeimhogjdpnpccoofpliimaahmaaome', // Replace with actual extension ID
+    'https://fact-checker-website.vercel.app',
+    'http://localhost:3000'
+  ]);
+  
+  const isAllowed = origin && allowedOrigins.has(origin);
+  return {
+    'Access-Control-Allow-Origin': isAllowed ? origin : '',
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Vary': 'Origin',
+  };
+}
+
+// Handle OPTIONS requests for CORS
+export function handleCorsOptions(req: NextRequest) {
+  const origin = req.headers.get('origin');
+  const headers = getCorsHeaders(origin);
+  return new NextResponse(null, { status: 200, headers });
+}
 
 // Create session cookie with proper settings
 export function createSessionCookie(response: NextResponse, sessionCookie: string) {
@@ -17,16 +44,15 @@ export function createSessionCookie(response: NextResponse, sessionCookie: strin
   });
 }
 
-// Call the unified /api/me endpoint to register a user
+// Call the existing /api/users/register endpoint to register a user
 export async function registerUserViaAPI(idToken: string) {
   try {
-    const registerResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/me`, {
+    const registerResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/users/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${idToken}`
-      },
-      body: JSON.stringify({ action: 'register' })
+      }
     });
 
     if (registerResponse.ok) {

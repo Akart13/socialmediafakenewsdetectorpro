@@ -1,0 +1,52 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getCorsHeaders, handleCorsOptions, createSessionCookie, registerUserViaAPI, createSessionFromIdToken, verifyIdTokenAndGetUser } from '@/lib/auth-helpers';
+
+export const runtime = 'nodejs';
+
+export async function OPTIONS(req: NextRequest) {
+  return handleCorsOptions(req);
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const origin = req.headers.get('origin');
+    const headers = getCorsHeaders(origin);
+    
+    const { idToken, registerUser = false } = await req.json();
+    
+    if (!idToken) {
+      return NextResponse.json({ error: "ID token required" }, { status: 400, headers });
+    }
+
+    // Verify the Firebase ID token and get user info
+    const { uid, email } = await verifyIdTokenAndGetUser(idToken);
+    console.log(`Unified auth: Authenticated user ${uid} (${email})`);
+
+    // Register user in Firestore if requested (for extension auth)
+    if (registerUser) {
+      const registerResult = await registerUserViaAPI(idToken);
+      if (!registerResult.success) {
+        console.warn('User registration failed, but continuing with auth:', registerResult.error);
+      }
+    }
+
+    // Create session cookie
+    const sessionCookie = await createSessionFromIdToken(idToken);
+    const response = NextResponse.json({ 
+      ok: true,
+      uid,
+      email,
+      message: 'Authentication successful'
+    }, { headers });
+    
+    // Set session cookie
+    createSessionCookie(response, sessionCookie);
+
+    return response;
+  } catch (error) {
+    console.error('Unified auth error:', error);
+    const origin = req.headers.get('origin');
+    const headers = getCorsHeaders(origin);
+    return NextResponse.json({ error: 'Authentication failed' }, { status: 500, headers });
+  }
+}

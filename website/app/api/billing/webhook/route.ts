@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getStripe, updateUserSubscriptionStatus, findUserByStripeCustomerId } from '@/lib/stripe';
+import { db } from '@/lib/firebaseAdmin';
+import Stripe from 'stripe';
 
 export const runtime = 'nodejs';
+
+// Initialize Stripe
+function getStripe(): Stripe {
+  if (!process.env.STRIPE_SECRET) {
+    throw new Error('STRIPE_SECRET environment variable is required');
+  }
+  return new Stripe(process.env.STRIPE_SECRET, {
+    apiVersion: '2023-10-16'
+  });
+}
 
 export async function POST(request: NextRequest) {
   const sig = request.headers.get('stripe-signature') as string;
@@ -27,7 +38,12 @@ export async function POST(request: NextRequest) {
         
         if (uid && session.customer) {
           const customerId = session.customer as string;
-          await updateUserSubscriptionStatus(uid, 'pro', 'active', customerId);
+          await db.collection('users').doc(uid).set({
+            plan: 'pro',
+            stripeCustomerId: customerId,
+            subscriptionStatus: 'active',
+            updatedAt: new Date()
+          }, { merge: true });
         }
         break;
       }
@@ -39,9 +55,13 @@ export async function POST(request: NextRequest) {
         const status = subscription.status;
         
         // Look up uid by customerId
-        const uid = await findUserByStripeCustomerId(customerId);
-        if (uid) {
-          await updateUserSubscriptionStatus(uid, status === 'active' ? 'pro' : 'free', status);
+        const snap = await db.collection('users').where('stripeCustomerId', '==', customerId).limit(1).get();
+        if (!snap.empty) {
+          await snap.docs[0].ref.set({
+            plan: status === 'active' ? 'pro' : 'free',
+            subscriptionStatus: status,
+            updatedAt: new Date()
+          }, { merge: true });
         }
         break;
       }

@@ -40,13 +40,12 @@ function LoginForm() {
           // First, register the user in Firestore
           console.log('User signed in, attempting to register in Firestore:', user.uid, user.email);
           try {
-            const registerResponse = await fetch('/api/me', {
+            const registerResponse = await fetch('/api/users/register', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${idToken}`
-              },
-              body: JSON.stringify({ action: 'register' })
+              }
             });
             
             if (registerResponse.ok) {
@@ -61,7 +60,7 @@ function LoginForm() {
           }
 
           // Then create session cookie
-          const response = await fetch('/api/auth?action=session', {
+          const response = await fetch('/api/auth/session', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
