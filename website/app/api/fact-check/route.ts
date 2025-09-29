@@ -121,6 +121,339 @@ function isValidUrl(url: string): boolean {
 
 const DAILY_FREE_LIMIT = 5;
 
+// Helper function to convert assessment to numeric rating
+function getRatingFromAssessment(assessment: string): number {
+  switch (assessment) {
+    case "True": return 9;
+    case "Likely True": return 8;
+    case "Mixed": return 6;
+    case "Likely False": return 3;
+    case "False": return 1;
+    case "Unverifiable": return 5;
+    default: return 5;
+  }
+}
+
+// Helper function to get explanation from assessment
+function getExplanationFromAssessment(assessment: string): string {
+  switch (assessment) {
+    case "True": return "All claims are well-supported by evidence from authoritative sources";
+    case "Likely True": return "Most claims are well-supported by evidence from reliable sources";
+    case "Mixed": return "Some claims are supported while others lack sufficient evidence";
+    case "Likely False": return "Most claims are not supported by reliable evidence";
+    case "False": return "Claims are contradicted by evidence from authoritative sources";
+    case "Unverifiable": return "Insufficient evidence available to verify the claims";
+    default: return "Unable to assess the veracity of the claims";
+  }
+}
+
+// Function to extract individual claims from post text
+async function extractClaims(text: string, images?: any[]): Promise<string[]> {
+  if (!text || typeof text !== 'string' || text.trim().length < 5) {
+    return ["Unable to extract claims from this post"];
+  }
+
+  // Sanitize input to prevent prompt injection
+  const sanitizedText = text
+    .replace(/[<>]/g, '') // Remove potential HTML/XML tags
+    .replace(/[{}]/g, '') // Remove JSON-like structures
+    .slice(0, 2000) // Limit length
+    .trim();
+
+  if (sanitizedText.length < 5) {
+    return ["Unable to extract claims from this post"];
+  }
+
+  const prompt = `
+  Analyze the following social media post and extract individual factual claims that can be verified.
+  
+  JSON array only. No markdown.
+  Task: From the post below, extract 2-5 ATOMIC, verifiable factual claims.
+  - Ignore opinions, jokes, sarcasm, forecasts, and value judgments.
+  - Merge duplicates; remove hashtags/handles/links.
+  - If no verifiable claims exist, return [].
+
+  Return format: ["claim 1", "claim 2", "claim 3"]
+
+  Post:
+  Text: "${sanitizedText}"
+    ${images && images.length > 0 ? `Images: ${images.length} image(s) with extracted text` : ''}
+  `;
+
+  try {
+    const requestBody = {
+      contents: [{
+        role: "user",
+        parts: [{ text: prompt }]
+      }],
+      generationConfig: {
+        maxOutputTokens: 1024,
+        candidateCount: 1,
+        stopSequences: ["END_JSON"]
+      }
+    };
+
+    const response = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Gemini API error: ${response.status}`);
+    }
+
+    const responseData = await response.json();
+    const rawText = responseData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    
+    if (!rawText || rawText.length < 10) {
+      return ["Unable to extract claims from this post"];
+    }
+
+    // Parse JSON response
+    const cleanedText = rawText.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, "$1").trim();
+    let claims: string[];
+    
+    try {
+      claims = JSON.parse(cleanedText);
+    } catch {
+      // If JSON parsing fails, try to extract claims from text
+      const lines = cleanedText.split('\n').filter((line: string) => line.trim());
+      claims = lines.map((line: string) => line.replace(/^[-*•]\s*/, '').replace(/^"\s*/, '').replace(/"\s*$/, '').trim());
+    }
+
+    // Validate and filter claims
+    if (!Array.isArray(claims)) {
+      return ["Unable to extract claims from this post"];
+    }
+
+    return claims.filter(claim => 
+      claim && 
+      typeof claim === 'string' && 
+      claim.trim().length > 0 &&
+      claim.trim().length < 500 // Reasonable length limit
+    );
+
+  } catch (error) {
+    console.error('Claim extraction error:', error);
+    return ["Unable to extract claims from this post"];
+  }
+}
+
+// Function to perform combined fact-checking with claim extraction
+async function performCombinedFactCheck(text: string, images?: any[]): Promise<any> {
+  // First, extract claims from the post
+  const extractedClaims = await extractClaims(text, images);
+  
+  if (!extractedClaims || extractedClaims.length === 0) {
+    return {
+      overallRating: getRatingFromAssessment("Unverifiable"),
+      overallConfidence: 0.5,
+      overallAssessment: "Unverifiable",
+      overallExplanation: "No verifiable claims found in this post",
+      claims: [],
+      sources: []
+    };
+  }
+
+  const prompt = `Return JSON only:
+{
+  "overallAssessment": "True" | "Likely True" | "Mixed" | "Likely False" | "False" | "Unverifiable",
+  "overallConfidence": 0.0-1.0,
+  "claims": [
+    {
+      "claim": "…",
+      "rating": 1-10,
+      "confidence": 0.0-1.0,
+      "explanation": "≤2 sentences",
+      "sources": ["url1","url2"]   // ≤2, ONLY from grounded results
+    }
+  ]
+}
+
+Rules:
+- Evaluate ONLY the provided claims (2-4). Do not invent new claims.
+- Use ONLY URLs present in Google Search grounding results; do NOT fabricate URLs.
+- Prefer authoritative sources; if none grounded → set sources=[] and confidence ≤0.4.
+- Keep explanations ≤2 sentences; be concise.
+- If most claims lack support, set overallAssessment="Unverifiable".
+END_JSON after the closing brace.
+
+Claims to check:
+${extractedClaims.map(claim => `"${claim}"`).join('\n')}`;
+
+  // Direct REST API call with grounding enabled
+  const requestBody = {
+    contents: [{
+      role: "user",
+      parts: [{ text: prompt }]
+    }],
+    generationConfig: {
+      maxOutputTokens: 3072,
+      candidateCount: 1,
+      stopSequences: ["END_JSON"]
+    },
+    tools: [{
+      googleSearch: {}
+    }]
+  };
+
+  const response = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(requestBody)
+  });
+
+  if (!response.ok) {
+    const errorData = await response.text();
+    throw new Error(`Gemini API error: ${response.status} ${response.statusText} - ${errorData}`);
+  }
+
+  const responseData = await response.json();
+  
+  // Log the raw response for debugging
+  console.log("=== GEMINI RAW RESPONSE ===");
+  console.log("Full response:", JSON.stringify(responseData, null, 2));    
+  
+  // Extract raw text from response
+  const rawText = responseData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  console.log("Raw text content:", rawText);
+  
+  if (!rawText || rawText.length < 20) {
+    // Retry once without grounding if first attempt fails
+    const retryBody = {
+      contents: [{
+        role: "user", 
+        parts: [{ text: prompt }]
+      }],
+       generationConfig: {
+         maxOutputTokens: 3072,
+         candidateCount: 1,
+         stopSequences: ["END_JSON"]         
+        }
+    };
+
+    const retryResponse = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(retryBody)
+    });
+
+    if (retryResponse.ok) {
+      const retryData = await retryResponse.json();
+      const retryText = retryData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      if (retryText && retryText.length >= 20) {
+        // Use retry response for parsing
+        const textNoFences = retryText.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, "$1").trim();
+        let modelJson; 
+        try { 
+          modelJson = JSON.parse(textNoFences); 
+        } catch { 
+          modelJson = { 
+            overallAssessment: "Unverifiable",
+            overallConfidence: 0.5,
+            claims: []
+          }; 
+        }
+        
+        // Process claims for retry case
+        const retryProcessedClaims = (modelJson.claims || []).map((claim: any) => ({
+          claim: claim.claim || "Unable to analyze claim",
+          credibilityRating: {
+            rating: claim.rating || 5,
+            confidence: claim.confidence || 0.5,
+            explanation: claim.explanation || "No analysis available",
+            keyEvidence: claim.keyEvidence || [],
+            groundingUsed: false
+          },
+          sources: []
+        }));
+
+        return {
+          overallRating: getRatingFromAssessment(modelJson.overallAssessment),
+          overallConfidence: modelJson.overallConfidence || 0.5,
+          overallAssessment: modelJson.overallAssessment || "Unverifiable",
+          overallExplanation: getExplanationFromAssessment(modelJson.overallAssessment),
+          claims: retryProcessedClaims,
+          sources: [] // No grounding in retry
+        };
+      }
+    }
+  }
+
+  // Build the final result from grounding metadata (not the model's sources)
+  const grounded = extractGrounded(responseData);
+  
+  // Log extracted grounded sources
+  console.log("=== EXTRACTED GROUNDED SOURCES ===");
+  console.log("Grounded sources:", JSON.stringify(grounded, null, 2));
+  console.log("Number of grounded sources:", grounded.length);
+  
+  // Parse the model text loosely (it may not be strict JSON with tools enabled)
+  const raw = (rawText || "").replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, "$1").trim();
+  let body: any; 
+  try { 
+    body = JSON.parse(raw); 
+  } catch { 
+    body = { 
+      overallAssessment: "Unverifiable",
+      overallConfidence: 0.5,
+      claims: []
+    }; 
+  }
+
+  console.log("Parsed model JSON:", JSON.stringify(body, null, 2));
+
+  // Process claims and add grounded sources
+  const processedClaims = (body.claims || []).map((claim: any) => {
+    // Use the AI's sources if available, otherwise use grounded sources
+    const claimSources = claim.sources && claim.sources.length > 0 
+      ? claim.sources.map((url: string) => ({
+          url: url,
+          title: new URL(url).hostname.replace(/^www\./, ''),
+          credibilityScore: 7,
+          relevanceScore: 8,
+          summary: "Fact-checking source",
+          searchResult: true
+        }))
+      : grounded.map((g: {url: string, title: string | null}) => ({
+          url: g.url,
+          title: g.title || "Source",
+          credibilityScore: 7,
+          relevanceScore: 8,
+          summary: "Fact-checking source",
+          searchResult: true
+        }));
+
+    return {
+      claim: claim.claim || "Unable to analyze claim",
+      credibilityRating: {
+        rating: claim.rating || 5,
+        confidence: claim.confidence || 0.5,
+        explanation: claim.explanation || "No analysis available",
+        keyEvidence: claim.keyEvidence || [],
+        groundingUsed: grounded.length > 0
+      },
+      sources: claimSources
+    };
+  });
+
+  return {
+    overallRating: getRatingFromAssessment(body.overallAssessment),
+    overallConfidence: body.overallConfidence || 0.5,
+    overallAssessment: body.overallAssessment || "Unverifiable",
+    overallExplanation: getExplanationFromAssessment(body.overallAssessment),
+    claims: processedClaims,
+    sources: grounded.map(g => g.url)
+  };
+}
+
 async function handler(req: NextRequest) {
   try {
     // Check authentication
@@ -148,7 +481,7 @@ async function handler(req: NextRequest) {
       if (usage.count >= DAILY_FREE_LIMIT) {
         return NextResponse.json({ 
           error: "Free quota exceeded", 
-          upgradeUrl: "https://fact-checker-website.vercel.app/upgrade" 
+          upgradeUrl: "https://fact-checker-website.vercel.app/billing" 
         }, { status: 402 });
       }
       
@@ -159,174 +492,27 @@ async function handler(req: NextRequest) {
       }, { merge: true });
     }
 
-    const { text } = await req.json();
+    const { text, images } = await req.json();
     
     if (!text || typeof text !== "string" || text.length < 5) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
 
-     const prompt = `Return JSON only:
-{"verdict":"…","rationale":"…","sources":[]}
-
-Rules:
-- verdict ∈ {"True","Likely True","Mixed","Likely False","False","Unverifiable"}
-- rationale ≤ 2 sentences (≤ 320 chars)
-- sources: ≤ 3 reliable URLs from your search
-- if not verifiable: verdict="Unverifiable", sources=[]
-
-Begin JSON now. END_JSON after the closing brace.
-Post:
-${text}`;
-
-    // Direct REST API call with grounding enabled
-    const requestBody = {
-      contents: [{
-        role: "user",
-        parts: [{ text: prompt }]
-      }],
-      generationConfig: {
-        maxOutputTokens: 2048,
-        candidateCount: 1,
-        stopSequences: ["END_JSON"]
-      },
-      tools: [{
-        googleSearch: {}
-      }]
-    };
-
-    const response = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody)
-    });
-
-    if (!response.ok) {
-      const errorData = await response.text();
-      throw new Error(`Gemini API error: ${response.status} ${response.statusText} - ${errorData}`);
-    }
-
-    const responseData = await response.json();
-    
-    // Log the raw response for debugging
-    console.log("=== GEMINI RAW RESPONSE ===");
-    console.log("Full response:", JSON.stringify(responseData, null, 2));    
-    // Extract raw text from response
-    const rawText = responseData.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    console.log("Raw text content:", rawText);
-    
-    if (!rawText || rawText.length < 20) {
-      // Retry once without grounding if first attempt fails
-      const retryBody = {
-        contents: [{
-          role: "user", 
-          parts: [{ text: prompt }]
-        }],
-         generationConfig: {
-           maxOutputTokens: 2048,
-           candidateCount: 1,
-           stopSequences: ["END_JSON"]         
-          }
-      };
-
-      const retryResponse = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(retryBody)
-      });
-
-      if (retryResponse.ok) {
-        const retryData = await retryResponse.json();
-        const retryText = retryData.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        if (retryText && retryText.length >= 20) {
-          // Use retry response for parsing
-          const textNoFences = retryText.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, "$1").trim();
-          let modelJson; 
-          try { 
-            modelJson = JSON.parse(textNoFences); 
-          } catch { 
-            modelJson = { rationale: textNoFences }; 
-          }
-          
-          const result = {
-            verdict: modelJson.verdict ?? modelJson.rating ?? "Unverifiable",
-            rationale: modelJson.rationale ?? modelJson.overallExplanation ?? "No rationale provided.",
-            sources: [] // No grounding in retry
-          };
-          
-          return NextResponse.json(result);
-        }
-      }
-    }
-
-    // Build the final result from grounding metadata (not the model's sources)
-    const grounded = extractGrounded(responseData);
-    
-    // Log extracted grounded sources
-    console.log("=== EXTRACTED GROUNDED SOURCES ===");
-    console.log("Grounded sources:", JSON.stringify(grounded, null, 2));
-    console.log("Number of grounded sources:", grounded.length);
-    
-    // Parse the model text loosely (it may not be strict JSON with tools enabled)
-    const raw = (rawText || "").replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, "$1").trim();
-    let body: any; 
-    try { 
-      body = JSON.parse(raw); 
-    } catch { 
-      body = { rationale: raw }; 
-    }
-
-    console.log("Parsed model JSON:", JSON.stringify(body, null, 2));
-
-    const result = {
-      verdict: body?.verdict ?? body?.rating ?? (grounded.length ? "Mixed" : "Unverifiable"),
-      rationale: body?.rationale ?? body?.overallExplanation ?? "No rationale provided.",
-      sources: grounded.map(g => g.url) // ← use only grounded URLs
-    };
-
-    console.log("=== FINAL RESULT ===");
-    console.log("Final result:", JSON.stringify(result, null, 2));
+    // Use the new combined fact-checking approach
+    const result = await performCombinedFactCheck(text, images);
 
     // Convert to format expected by extension
     const extensionFormat = {
       overallRating: {
-        rating: result.verdict === "True" ? 9 : 
-                result.verdict === "Likely True" ? 8 :
-                result.verdict === "Mixed" ? 6 :
-                result.verdict === "Likely False" ? 3 :
-                result.verdict === "False" ? 1 : 5,
-        confidence: 0.8,
-        assessment: result.verdict,
-        explanation: result.rationale
+        rating: result.overallRating || 5,
+        confidence: result.overallConfidence || 0.5,
+        assessment: result.overallAssessment || "Unverifiable",
+        explanation: result.overallExplanation || "No rationale provided."
       },
-      claims: [{
-        claim: "Overall assessment",
-        credibilityRating: {
-          rating: result.verdict === "True" ? 9 : 
-                  result.verdict === "Likely True" ? 8 :
-                  result.verdict === "Mixed" ? 6 :
-                  result.verdict === "Likely False" ? 3 :
-                  result.verdict === "False" ? 1 : 5,
-          confidence: 0.8,
-          explanation: result.rationale,
-          keyEvidence: [],
-          groundingUsed: grounded.length > 0
-        },
-        sources: grounded.map((g: {url: string, title: string | null}) => ({
-          url: g.url,
-          title: g.title || "Source",
-          credibilityScore: 7,
-          relevanceScore: 8,
-          summary: "Fact-checking source",
-          searchResult: true
-        }))
-      }],
+      claims: result.claims || [],
       searchMetadata: {
-        sourcesFound: grounded.length,
-        authoritativeSources: grounded.length,
+        sourcesFound: result.sources?.length || 0,
+        authoritativeSources: result.sources?.length || 0,
         searchQueries: []
       }
     };

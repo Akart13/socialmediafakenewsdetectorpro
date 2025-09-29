@@ -296,7 +296,14 @@ class SocialMediaExtractor {
 
       chrome.runtime.sendMessage({
         action: 'factCheck',
-        data: data
+        data: {
+          text: data.text,
+          images: data.images || [],
+          imageTexts: data.imageTexts || [],
+          platform: data.platform,
+          url: data.url,
+          timestamp: data.timestamp
+        }
       }, (response) => {
         if (chrome.runtime.lastError) {
           const error = chrome.runtime.lastError.message;
