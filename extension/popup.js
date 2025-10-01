@@ -6,28 +6,11 @@ class PopupManager {
 
   async init() {
     await this.loadUserStatus();
-    await this.loadSettings();
     await this.loadStats();
     this.setupEventListeners();
   }
 
   setupEventListeners() {
-    // Settings management
-    document.getElementById('saveSettings').addEventListener('click', () => {
-      this.saveSettings();
-    });
-
-    // Fast mode toggle
-    document.getElementById('fastMode').addEventListener('change', (e) => {
-      const showImagesCheckbox = document.getElementById('showImages');
-      if (e.target.checked) {
-        showImagesCheckbox.checked = false;
-        showImagesCheckbox.disabled = true;
-      } else {
-        showImagesCheckbox.disabled = false;
-      }
-    });
-
     // Sign in button
     const signInBtn = document.getElementById('signInBtn');
     if (signInBtn) {
@@ -116,27 +99,6 @@ class PopupManager {
     }
   }
 
-  async loadSettings() {
-    try {
-      const result = await chrome.storage.sync.get([
-        'showImages',
-        'fastMode'
-      ]);
-
-      // Load settings
-      document.getElementById('showImages').checked = result.showImages !== false; // Default to true
-      document.getElementById('fastMode').checked = result.fastMode || false;
-      
-      // Update image setting based on fast mode
-      if (result.fastMode) {
-        document.getElementById('showImages').checked = false;
-        document.getElementById('showImages').disabled = true;
-      }
-    } catch (error) {
-      console.error('Error loading settings:', error);
-      this.showStatus('Error loading settings', 'error');
-    }
-  }
 
   async loadStats() {
     try {
@@ -157,45 +119,6 @@ class PopupManager {
       console.error('Error loading stats:', error);
     }
   }
-
-
-  async saveSettings() {
-    try {
-      const fastMode = document.getElementById('fastMode').checked;
-      const settings = {
-        showImages: fastMode ? false : document.getElementById('showImages').checked,
-        fastMode: fastMode
-      };
-
-      await chrome.storage.sync.set(settings);
-      this.showStatus('Settings saved successfully', 'success');
-
-      // Notify content scripts of settings change
-      const tabs = await chrome.tabs.query({
-        url: [
-          'https://twitter.com/*',
-          'https://x.com/*',
-          'https://www.instagram.com/*',
-          'https://www.facebook.com/*'
-        ]
-      });
-
-      for (const tab of tabs) {
-        try {
-          await chrome.tabs.sendMessage(tab.id, {
-            action: 'settingsUpdated',
-            settings: settings
-          });
-        } catch (error) {
-          // Ignore errors for tabs that don't have content script loaded
-        }
-      }
-    } catch (error) {
-      console.error('Error saving settings:', error);
-      this.showStatus('Error saving settings', 'error');
-    }
-  }
-
 
   showStatus(message, type) {
     const statusElement = document.getElementById('status');

@@ -197,7 +197,7 @@ function getExplanationFromAssessment(assessment: string): string {
 }
 
 // Function to extract individual claims from post text
-async function extractClaims(text: string, images?: any[]): Promise<string[]> {
+async function extractClaims(text: string): Promise<string[]> {
   if (!text || typeof text !== 'string' || text.trim().length < 5) {
     return ["Unable to extract claims from this post"];
   }
@@ -227,7 +227,6 @@ async function extractClaims(text: string, images?: any[]): Promise<string[]> {
 
   Post:
   Text: "${sanitizedText}"
-    ${images && images.length > 0 ? `Images: ${images.length} image(s) with extracted text` : ''}
   `;
 
   try {
@@ -419,7 +418,7 @@ Rules:
 }
 
 // Function to perform combined fact-checking with claim extraction
-async function performCombinedFactCheck(text: string, images?: any[], postDate?: string): Promise<any> {
+async function performCombinedFactCheck(text: string, postDate?: string): Promise<any> {
   // Format the post date for the prompt
   const dateContext = postDate ? `\n\nPost Date: ${new Date(postDate).toLocaleDateString('en-US', { 
     year: 'numeric', 
@@ -453,7 +452,7 @@ async function performCombinedFactCheck(text: string, images?: any[], postDate?:
         - Use direct publisher URLs only (no shortened or redirect links). Keep to domain + path, no tracking params.
         - Use ONLY URLs present in Google Search grounding results; do NOT fabricate URLs.
         - Do NOT return redirect/tracking links (e.g., vertexaisearch.cloud.google.com, news.google.com, t.co).
-        - If a link is a redirect, resolve it and output the final destination URL on the publisher’s domain.
+        - If a link is a redirect, resolve it and output the final destination URL on the publisher's domain.
         - Prefer authoritative sources; if none grounded → set src=[] and conf ≤0.4.
         - If most claims lack support, set oa="Unverifiable".
         - Focus on factual claims that can be researched and verified, not opinions or subjective statements.
@@ -675,7 +674,7 @@ async function handler(req: NextRequest) {
       }, { merge: true });
     }
 
-    const { text, images, postDate } = await req.json();
+    const { text, postDate } = await req.json();
     
     if (!text || typeof text !== "string" || text.length < 5) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
@@ -694,13 +693,11 @@ async function handler(req: NextRequest) {
 
     console.log('Processing fact-check request:', {
       textLength: sanitizedText.length,
-      hasImages: images && images.length > 0,
-      imageCount: images ? images.length : 0,
       postDate: postDate
     });
 
     // Use the new combined fact-checking approach
-    const result = await performCombinedFactCheck(sanitizedText, images, postDate);
+    const result = await performCombinedFactCheck(sanitizedText, postDate);
 
     // Convert to format expected by extension
     const extensionFormat = {

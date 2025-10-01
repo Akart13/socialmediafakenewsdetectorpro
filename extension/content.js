@@ -2,7 +2,6 @@
 class SocialMediaExtractor {
   constructor() {
     this.platform = this.detectPlatform();
-    this.imageExtractor = new ImageTextExtractor();
     this.init();
   }
 
@@ -79,16 +78,6 @@ class SocialMediaExtractor {
     }, 5000);
   }
 
-  async getSettings() {
-    return new Promise((resolve) => {
-      chrome.storage.sync.get(['showImages', 'fastMode'], (result) => {
-        resolve({
-          showImages: result.showImages !== false, // Default to true
-          fastMode: result.fastMode || false
-        });
-      });
-    });
-  }
 
   addFactCheckButtons() {
     // Add fact-check buttons to posts
@@ -188,64 +177,15 @@ class SocialMediaExtractor {
     }
     
     const text = this.extractText(post);
-    const images = this.extractImages(post);
     const postDate = this.extractPostDate(post);
     
-    // Extract text from images if any (and if enabled)
-    let imageTexts = [];
-    if (images && images.length > 0) {
-      try {
-        // Check if extension context is still valid
-        if (!chrome.runtime || !chrome.runtime.sendMessage) {
-          console.warn('Extension context invalidated - skipping image extraction');
-          return {
-            text: text || '',
-            images: images,
-            imageTexts: [],
-            platform: this.platform,
-            postDate: postDate,
-            error: 'Extension context invalidated'
-          };
-        }
-
-        // Check if image processing is enabled
-        const settings = await this.getSettings();
-        if (settings.showImages !== false && !settings.fastMode) {
-          imageTexts = await this.imageExtractor.extractTextFromImages(images);
-        }
-      } catch (error) {
-        console.warn('Failed to extract text from images:', error);
-        // If it's a context invalidation error, return early
-        if (error.message && error.message.includes('Extension context invalidated')) {
-          return {
-            text: text || '',
-            images: images,
-            imageTexts: [],
-            platform: this.platform,
-            postDate: postDate,
-            error: 'Extension context invalidated'
-          };
-        }
-        imageTexts = [];
-      }
-    }
-    
-    // Combine all text content safely
-    const allText = [
-      text || '',
-      ...(imageTexts || []).map(img => img?.extractedText || '').filter(t => t && t.trim())
-    ].filter(t => t && t.trim()).join(' ');
-    
     // Validate that we have some text to analyze
-    if (!allText || allText.trim().length === 0) {
+    if (!text || text.trim().length === 0) {
       throw new Error('No text content found in the post');
     }
     
     return {
-      text: allText,
-      originalText: text || '',
-      images: images || [],
-      imageTexts: imageTexts || [],
+      text: text,
       platform: this.platform,
       url: window.location.href,
       postDate: postDate,
@@ -273,21 +213,6 @@ class SocialMediaExtractor {
     }
   }
 
-  extractImages(post) {
-    const images = [];
-    const imgElements = post.querySelectorAll('img');
-    
-    imgElements.forEach(img => {
-      if (img.src && !img.src.includes('profile') && !img.src.includes('avatar')) {
-        images.push({
-          src: img.src,
-          alt: img.alt || ''
-        });
-      }
-    });
-    
-    return images;
-  }
 
   extractPostDate(post) {
     try {
@@ -362,8 +287,6 @@ class SocialMediaExtractor {
         action: 'factCheck',
         data: {
           text: data.text,
-          images: data.images || [],
-          imageTexts: data.imageTexts || [],
           platform: data.platform,
           url: data.url,
           postDate: data.postDate,
