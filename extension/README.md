@@ -5,20 +5,13 @@ A Chrome extension that uses Google Gemini 2.5 Flash AI to fact-check tweets, In
 ## Features
 
 - 🔍 **Multi-Platform Support**: Works on Twitter/X, Instagram, and Facebook
-- 🖼️ **Image Text Extraction**: Uses AI to read text from images in posts
 - 🧠 **AI-Powered Analysis**: Uses Google Gemini 2.5 Flash for claim extraction and fact-checking
 - 📊 **Credibility Scoring**: Provides credibility and relevance scores for sources
 - 🎯 **Grounding**: Finds relevant sources for each claim using AI grounding
 - 📱 **Modern UI**: Clean, responsive interface with real-time results
 
-## Setup Instructions
 
-### 1. Add Your API Key
-
-1. Go to line 1 of background.js
-2. Replace the 'geminiAPIKey' variable with your Gemini API Key
-
-### 2. Install the Extension
+### 1. Install the Extension
 
 1. Open Chrome and go to `chrome://extensions/`
 2. Enable "Developer mode" in the top right
@@ -26,15 +19,8 @@ A Chrome extension that uses Google Gemini 2.5 Flash AI to fact-check tweets, In
 4. Select the extension folder
 5. The extension should now appear in your extensions list
 
-### 3. Configure the Extension
 
-1. Click the extension icon in your browser toolbar
-2. Configure your preferences:  
-   * Auto-check new posts  
-   * Extract text from images
-3. Click "Save Settings"
-
-### 4. Use the Extension
+### 2. Use the Extension
 
 1. Visit Twitter, Instagram, or Facebook
 2. Look for posts with a "🔍 Fact Check" button
@@ -51,7 +37,6 @@ A Chrome extension that uses Google Gemini 2.5 Flash AI to fact-check tweets, In
 ### 1. Text Extraction
 
 * Extracts text from the post content
-* Uses AI vision to read text from images
 * Combines all text for comprehensive analysis
 
 ### 2. Claim Analysis
@@ -88,7 +73,7 @@ A Chrome extension that uses Google Gemini 2.5 Flash AI to fact-check tweets, In
 
 ## API Usage
 
-The extension uses Google Gemini 2.5 Flash API for:
+The extension uses Google Gemini 2.5 Flash Lite API for:
 
 * Text extraction from images
 * Claim identification and analysis
@@ -97,7 +82,6 @@ The extension uses Google Gemini 2.5 Flash API for:
 
 ## Privacy & Security
 
-* API key is pre-configured and embedded in the extension
 * No data is sent to third-party services except Google Gemini
 * All processing happens through Google's secure API endpoints
 * No personal data is collected or stored
