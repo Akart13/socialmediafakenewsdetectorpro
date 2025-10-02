@@ -156,6 +156,39 @@ function BillingContent() {
     }
   };
 
+  const handleManageSubscription = async () => {
+    if (!user) return;
+
+    try {
+      const idToken = await user.getIdToken();
+      
+      // Get redirect_uri from URL params if present
+      const redirectUri = searchParams.get('redirect_uri');
+      
+      const response = await fetch('/api/billing/customer-portal', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({ redirect_uri: redirectUri })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to open customer portal');
+      }
+
+      const { url } = await response.json();
+      
+      if (url) {
+        window.location.href = url;
+      }
+    } catch (error) {
+      console.error('Error opening customer portal:', error);
+      setMessage({ type: 'error', text: 'Failed to open subscription management. Please try again.' });
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
@@ -316,17 +349,26 @@ function BillingContent() {
                   <li>Export fact-check reports</li>
                 </ul>
                 {userLimits?.plan === 'pro' ? (
-                  <div style={{ 
-                    padding: '0.75rem', 
-                    background: '#48bb78', 
-                    borderRadius: '8px',
-                    fontSize: '0.875rem',
-                    color: 'white',
-                    textAlign: 'center',
-                    fontWeight: '600',
-                    marginBottom: '1rem'
-                  }}>
-                    Current Plan
+                  <div>
+                    <div style={{ 
+                      padding: '0.75rem', 
+                      background: '#48bb78', 
+                      borderRadius: '8px',
+                      fontSize: '0.875rem',
+                      color: 'white',
+                      textAlign: 'center',
+                      fontWeight: '600',
+                      marginBottom: '1rem'
+                    }}>
+                      Current Plan
+                    </div>
+                    <button 
+                      onClick={handleManageSubscription}
+                      className="btn btn-secondary"
+                      style={{ width: '100%', marginBottom: '1rem' }}
+                    >
+                      Manage Subscription
+                    </button>
                   </div>
                 ) : (
                   <button 
