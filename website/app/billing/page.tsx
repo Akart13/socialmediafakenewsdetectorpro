@@ -129,32 +129,6 @@ function BillingContent() {
     }
   };
 
-  const handleDowngrade = async () => {
-    if (!user) return;
-
-    try {
-      const idToken = await user.getIdToken();
-      
-      const response = await fetch('/api/billing/downgrade', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to downgrade plan');
-      }
-
-      setMessage({ type: 'success', text: 'Successfully downgraded to Free plan.' });
-      // Refresh user limits
-      await fetchUserLimits(user);
-    } catch (error) {
-      console.error('Error downgrading plan:', error);
-      setMessage({ type: 'error', text: 'Failed to downgrade plan. Please try again.' });
-    }
-  };
 
   const handleManageSubscription = async () => {
     if (!user) return;
@@ -302,16 +276,29 @@ function BillingContent() {
                     Current Plan
                   </div>
                 ) : (
-                  <div style={{ 
-                    padding: '0.75rem', 
-                    background: '#f7fafc', 
-                    borderRadius: '8px',
-                    fontSize: '0.875rem',
-                    color: '#4a5568',
-                    textAlign: 'center'
-                  }}>
-                    Downgrade to Free
-                  </div>
+                  <button 
+                    onClick={handleUpgrade}
+                    disabled={creatingCheckout}
+                    className="btn btn-primary"
+                    style={{ width: '100%' }}
+                  >
+                    {creatingCheckout ? (
+                      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <span style={{ 
+                          width: '16px', 
+                          height: '16px', 
+                          border: '2px solid #ffffff40', 
+                          borderTop: '2px solid #ffffff', 
+                          borderRadius: '50%', 
+                          animation: 'spin 1s linear infinite',
+                          marginRight: '8px'
+                        }}></span>
+                        Processing...
+                      </span>
+                    ) : (
+                      'Upgrade to Pro'
+                    )}
+                  </button>
                 )}
               </div>
 
@@ -385,15 +372,6 @@ function BillingContent() {
                     ) : (
                       'Upgrade to Pro'
                     )}
-                  </button>
-                )}
-                {userLimits?.plan === 'pro' && (
-                  <button 
-                    onClick={handleDowngrade}
-                    className="btn btn-secondary"
-                    style={{ width: '100%' }}
-                  >
-                    Downgrade to Free
                   </button>
                 )}
               </div>
