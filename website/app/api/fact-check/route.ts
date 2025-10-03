@@ -176,133 +176,13 @@ function getExplanationFromAssessment(assessment: string): string {
   }
 }
 
-// Function to extract individual claims from post text
-async function extractClaims(text: string): Promise<string[]> {
-  if (!text || typeof text !== 'string' || text.trim().length < 5) {
-    return ["Unable to extract claims from this post"];
-  }
 
-  // Sanitize input to prevent prompt injection
-  const sanitizedText = text
-    .replace(/[<>]/g, '') // Remove potential HTML/XML tags
-    .replace(/[{}]/g, '') // Remove JSON-like structures
-    .slice(0, 2000) // Limit length
-    .trim();
-
-  if (sanitizedText.length < 5) {
-    return ["Unable to extract claims from this post"];
-  }
-
-  const prompt = `
-  Analyze the following social media post and extract individual factual claims that can be verified.
-  
-  JSON array only. No markdown.
-  Task: From the post below, extract 2-5 ATOMIC, verifiable factual claims.
-  - Write "END_JSON" at the end of the response.
-  - Ignore opinions, jokes, sarcasm, forecasts, and value judgments.
-  - Merge duplicates; remove hashtags/handles/links.
-  - If no verifiable claims exist, return [].
-
-  Return format: ["claim 1", "claim 2", "claim 3"]
-
-  Post:
-  Text: "${sanitizedText}"
-  `;
-
-  try {
-    const requestBody = {
-      contents: [{
-        role: "user",
-        parts: [{ text: prompt }]
-      }],
-      generationConfig: {
-        maxOutputTokens: 1024,
-        candidateCount: 1,
-        stopSequences: ["END_JSON"],
-        temperature: 0.0,
-        seed: 67
-      }
-    };
-
-    const response = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody)
-    });
-
-    if (!response.ok) {
-      throw new Error(`Gemini API error: ${response.status}`);
-    }
-
-    const responseData = await response.json();
-    const rawText = responseData.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    
-    if (!rawText || rawText.length < 10) {
-      return ["Unable to extract claims from this post"];
-    }
-
-    // Parse JSON response with improved error handling
-    const cleanedText = rawText.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, "$1").trim();
-    let claims: string[];
-    
-    try {
-      claims = JSON.parse(cleanedText);
-      
-      // Validate that claims is an array
-      if (!Array.isArray(claims)) {
-        throw new Error('Claims is not an array');
-      }
-      
-    } catch (parseError) {
-      console.warn('JSON parsing failed in extractClaims, attempting recovery:', parseError);
-      console.warn('Raw text:', cleanedText);
-      
-      // Try to extract JSON more aggressively
-      try {
-        const jsonMatch = cleanedText.match(/\[[\s\S]*\]/);
-        if (jsonMatch) {
-          claims = JSON.parse(jsonMatch[0]);
-          console.log('Recovered claims JSON:', claims);
-        } else {
-          throw new Error('No JSON array found in response');
-        }
-      } catch (recoveryError) {
-        console.warn('Claims JSON recovery failed:', recoveryError);
-        // If JSON parsing fails, try to extract claims from text
-        const lines = cleanedText.split('\n').filter((line: string) => line.trim());
-        claims = lines.map((line: string) => line.replace(/^[-*•]\s*/, '').replace(/^"\s*/, '').replace(/"\s*$/, '').trim());
-      }
-    }
-
-    // Validate and filter claims
-    if (!Array.isArray(claims)) {
-      return ["Unable to extract claims from this post"];
-    }
-
-    return claims.filter(claim => 
-      claim && 
-      typeof claim === 'string' && 
-      claim.trim().length > 0 &&
-      claim.trim().length < 500 // Reasonable length limit
-    );
-
-  } catch (error) {
-    console.error('Claim extraction error:', error);
-    return ["Unable to extract claims from this post"];
-  }
-}
-
-// Function to structure the fact-check JSON response into a more organized format
+// Function to structure the fact-check response into a well-organized format
 async function structureFactCheckResponse(factCheckResult: any): Promise<any> {
   const prompt = `
-Transform the following fact-check JSON response into a well-structured, organized format that's easier to read and understand.
+Transform the following fact-check response into a well-structured, organized format that's easier to read and understand.
 
-Current JSON:
-${JSON.stringify(factCheckResult, null, 2)}
-
-Please restructure this into a clean, organized JSON with the following structure:
+Please structure the response into a clean, organized JSON with the following structure:
 {
   "overallRating": {
     "rating": number (1-10),
@@ -318,7 +198,6 @@ Please restructure this into a clean, organized JSON with the following structur
         "confidence": number (0-1),
         "explanation": string,
         "keyEvidence": string[],
-        "groundingUsed": boolean
       },
       "sources": [
         {
@@ -347,6 +226,12 @@ Rules:
 - Keep explanations concise but informative
 - Return ONLY the JSON object, no markdown or code fences
 - Write "END_JSON" at the end of the response
+
+Raw fact-check response:
+${factCheckResult.rawResponse}
+
+Available grounded sources:
+${JSON.stringify(factCheckResult.groundedSources, null, 2)}
 `;
 
   try {
@@ -358,12 +243,16 @@ Rules:
       generationConfig: {
         maxOutputTokens: 4096,
         candidateCount: 1,
-        temperature: 0.1,
+        temperature: 0.0,
         stopSequences: ["END_JSON"],
-        seed: 67
+        seed: 67,
+        responseMimeType: "application/json"
       }
     };
 
+    console.log("=== STRUCTURE FACT CHECK API CALL ===");
+    console.log("Request body:", JSON.stringify(requestBody, null, 2));
+    
     const response = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
       method: 'POST',
       headers: {
@@ -374,7 +263,7 @@ Rules:
 
     if (!response.ok) {
       const errorData = await response.text();
-      console.error('Gemini structuring API error details:', {
+      console.error('Structure Fact Check API error details:', {
         status: response.status,
         statusText: response.statusText,
         errorData: errorData,
@@ -384,6 +273,8 @@ Rules:
     }
 
     const responseData = await response.json();
+    console.log("=== STRUCTURE FACT CHECK API RESPONSE ===");
+    console.log("Full response:", JSON.stringify(responseData, null, 2));
     const rawText = responseData.candidates?.[0]?.content?.parts?.[0]?.text || "";
     
     if (!rawText || rawText.length < 10) {
@@ -427,6 +318,9 @@ Rules:
       console.warn('Structured result missing required fields, using original format');
       return factCheckResult;
     }
+    
+    console.log("=== FINAL STRUCTURED RESULT ===");
+    console.log("Structured result:", JSON.stringify(structuredResult, null, 2));
 
     console.log('Successfully structured fact-check response');
     return structuredResult;
@@ -449,35 +343,20 @@ async function performCombinedFactCheck(text: string, postDate?: string): Promis
     minute: '2-digit'
   })}` : '';
 
-        const prompt = `Return ONLY a raw JSON object. No code fences, no prose. No markdown, no triple backticks, no preface or postscript. Minify JSON. Return <= 1024 tokens. No inline citation markers (e.g., [1], [1,2]) anywhere. Cite only via the sources array.
-
-        {
-          "oa": "True" | "Likely True" | "Mixed" | "Likely False" | "False" | "Unverifiable",
-          "oc": 0.0-1.0,
-          "claims": [
-            {
-              "c": "claim text",
-              "r": 1.0-10.0,
-              "conf": 0.0-1.0,
-              "exp": "≤12 words",
-              "src": ["url1","url2"]
-            }
-          ]
-        }
-
-        Rules:
-        - Write "END_JSON" at the end of the response.
-        - Max claims: 2-3
-        - Max URLs per claim: 3
-        - Extract most important factual claims only
-        - Use direct publisher URLs only (no shortened or redirect links). Keep to domain + path, no tracking params.
-        - Use ONLY URLs present in Google Search grounding results; do NOT fabricate URLs.
-        - Do NOT return redirect/tracking links (e.g., vertexaisearch.cloud.google.com, news.google.com, t.co).
-        - If a link is a redirect, resolve it and output the final destination URL on the publisher's domain.
-        - Prefer authoritative sources; if none grounded → set src=[] and conf ≤0.4.
-        - If most claims lack support, set oa="Unverifiable".
-        - Focus on factual claims that can be researched and verified, not opinions or subjective statements.
-        - Consider the post date when evaluating claims - older posts may have outdated information.
+        const prompt = `You are a fact-checker on social media. You are given a post and you need to extract 1-4 factual claims, that can be researched and verified, not opinions or subjective statements. 
+        For each claim:
+        - find 1-3 sources that support or deny the claim. 
+        - Provide links to the sources.
+        - Give each source a title and only the title by itself (name of the source such as "CNN", "BBC", "Reuters", etc.)
+        - Give each source a credibility score from 1-10 and a relevance score from 1-10.
+        - Give each claim a rating from 1-10 and a confidence from 0.0-1.0.
+        - Also give a 1-2 sentence explanation for each claim. 
+        Finally, based on the claims and sources:
+        - give an overall rating from 1-10, 
+        - an overall confidence from 0.0-1.0, 
+        - an overall assessment with 1-3 words such as "True", "Likely True", "Mixed", "Likely False", "False", or "Unverifiable"
+        - a 1-2 sentence overall explanation.
+        When finished write "END_FACT_CHECK".
 
         Post to analyze:
         ${text}${dateContext}`;
@@ -492,14 +371,17 @@ async function performCombinedFactCheck(text: string, postDate?: string): Promis
       maxOutputTokens: 4096,
       candidateCount: 1,
       temperature: 0.0,
-      stopSequences: ["END_JSON"],
-      seed: 67
+      stopSequences: ["END_FACT_CHECK"],
+      seed: 67,
     },
     tools: [{
       googleSearch: {}
     }]
   };
 
+  console.log("=== MAIN FACT CHECK API CALL ===");
+  console.log("Request body:", JSON.stringify(requestBody, null, 2));
+  
   const response = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
     method: 'POST',
     headers: {
@@ -510,7 +392,7 @@ async function performCombinedFactCheck(text: string, postDate?: string): Promis
 
   if (!response.ok) {
     const errorData = await response.text();
-    console.error('Gemini API error details:', {
+    console.error('Main Fact Check API error details:', {
       status: response.status,
       statusText: response.statusText,
       errorData: errorData,
@@ -520,9 +402,7 @@ async function performCombinedFactCheck(text: string, postDate?: string): Promis
   }
 
   const responseData = await response.json();
-  
-  // Log the raw response for debugging
-  console.log("=== GEMINI RAW RESPONSE ===");
+  console.log("=== MAIN FACT CHECK API RESPONSE ===");
   console.log("Full response:", JSON.stringify(responseData, null, 2));    
   
   // Extract raw text from response
@@ -537,153 +417,10 @@ async function performCombinedFactCheck(text: string, postDate?: string): Promis
   console.log("Grounded sources:", JSON.stringify(grounded, null, 2));
   console.log("Number of grounded sources:", grounded.length);
   
-  // Parse the model text with improved error handling
-  const raw = (rawText || "").replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, "$1").trim();
-  let body: any; 
-  
-  // Enhanced JSON parsing with better error handling
-  try { 
-    // First try direct parsing
-    body = JSON.parse(raw); 
-    
-    // Validate the parsed JSON has required fields
-    if (!body || typeof body !== 'object') {
-      throw new Error('Invalid JSON structure');
-    }
-    
-    // Ensure required fields exist with defaults
-    if (!body.oa) body.oa = "Unverifiable";
-    if (typeof body.oc !== 'number') body.oc = 0.5;
-    if (!Array.isArray(body.claims)) body.claims = [];
-    
-  } catch (parseError) { 
-    console.warn('JSON parsing failed, attempting recovery:', parseError);
-    console.warn('Raw text that failed to parse:', raw);
-    
-    // Try to extract JSON from the text more aggressively
-    try {
-      // Look for JSON-like content between braces
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        body = JSON.parse(jsonMatch[0]);
-        console.log('Recovered JSON from text:', body);
-      } else {
-        throw new Error('No JSON found in response');
-      }
-    } catch (recoveryError) {
-      console.error('JSON recovery failed:', recoveryError);
-      body = { 
-        oa: "Unverifiable",
-        oc: 0.5,
-        claims: []
-      }; 
-    }
-  }
-
-  console.log("Parsed model JSON:", JSON.stringify(body, null, 2));
-
-  // Process claims and add grounded sources
-  const processedClaims = (body.claims || []).map((claim: any) => {
-    // Create a map of grounded sources for quick lookup
-    const groundedMap = new Map();
-    grounded.forEach((g: {url: string, title: string | null}) => {
-      groundedMap.set(g.url, g.title);
-    });
-
-    // Use the AI's sources if available, otherwise use grounded sources
-    let claimSources = [];
-    
-    if (claim.src && claim.src.length > 0) {
-      // Filter for valid URLs only
-      const realUrls = claim.src.filter((url: string) => 
-        url && 
-        typeof url === 'string' && 
-        isValidUrl(url)
-      );
-      
-      if (realUrls.length > 0) {
-        claimSources = realUrls.map((url: string) => {
-          try {
-            // Try to find the title from grounded sources first
-            const groundedTitle = groundedMap.get(url);
-            const title = groundedTitle || new URL(url).hostname.replace(/^www\./, '');
-            
-            return {
-              url: url,
-              title: title,
-              credibilityScore: 7,
-              relevanceScore: 8,
-              summary: "Fact-checking source",
-              searchResult: true
-            };
-          } catch (error) {
-            console.warn('Error processing URL:', url, error);
-            return null;
-          }
-        }).filter(Boolean); // Remove null entries
-      } else {
-        // If no real URLs found, use grounded sources (including redirect URLs as fallback)
-        claimSources = grounded
-          .filter((g: {url: string, title: string | null}) => isValidUrl(g.url))
-          .map((g: {url: string, title: string | null}) => {
-            try {
-              return {
-                url: g.url,
-                title: g.title || new URL(g.url).hostname.replace(/^www\./, ''),
-                credibilityScore: 7,
-                relevanceScore: 8,
-                summary: "Fact-checking source",
-                searchResult: true
-              };
-            } catch (error) {
-              console.warn('Error processing grounded URL:', g.url, error);
-              return null;
-            }
-          })
-          .filter(Boolean); // Remove null entries
-      }
-    } else {
-      // Fallback to grounded sources
-      claimSources = grounded
-        .filter((g: {url: string, title: string | null}) => isValidUrl(g.url))
-        .map((g: {url: string, title: string | null}) => {
-          try {
-            return {
-              url: g.url,
-              title: g.title || new URL(g.url).hostname.replace(/^www\./, ''),
-              credibilityScore: 7,
-              relevanceScore: 8,
-              summary: "Fact-checking source",
-              searchResult: true
-            };
-          } catch (error) {
-            console.warn('Error processing grounded URL:', g.url, error);
-            return null;
-          }
-        })
-        .filter(Boolean); // Remove null entries
-    }
-
-    return {
-      claim: claim.c || "Unable to analyze claim",
-      credibilityRating: {
-        rating: claim.r || 5,
-        confidence: claim.conf || 0.5,
-        explanation: claim.exp || "No analysis available",
-        keyEvidence: claim.keyEvidence || [],
-        groundingUsed: grounded.length > 0
-      },
-      sources: claimSources
-    };
-  });
-
+  // Return the raw response and grounded sources for the structure function to handle
   return {
-    overallRating: getRatingFromAssessment(body.oa),
-    overallConfidence: body.oc || 0.5,
-    overallAssessment: body.oa || "Unverifiable",
-    overallExplanation: getExplanationFromAssessment(body.oa),
-    claims: processedClaims,
-    sources: grounded.map(g => g.url)
+    rawResponse: rawText,
+    groundedSources: grounded
   };
 }
 
@@ -750,24 +487,8 @@ async function handler(req: NextRequest) {
     // Use the new combined fact-checking approach
     const result = await performCombinedFactCheck(sanitizedText, postDate);
 
-    // Convert to format expected by extension
-    const extensionFormat = {
-      overallRating: {
-        rating: result.overallRating || 5,
-        confidence: result.overallConfidence || 0.5,
-        assessment: result.overallAssessment || "Unverifiable",
-        explanation: result.overallExplanation || "No rationale provided."
-      },
-      claims: result.claims || [],
-      searchMetadata: {
-        sourcesFound: result.sources?.length || 0,
-        authoritativeSources: result.sources?.length || 0,
-        searchQueries: []
-      }
-    };
-
     // Structure the response using another Gemini API call
-    const structuredResult = await structureFactCheckResponse(extensionFormat);
+    const structuredResult = await structureFactCheckResponse(result);
 
     return NextResponse.json(structuredResult);
   } catch (e: any) {
