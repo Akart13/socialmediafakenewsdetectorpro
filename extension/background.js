@@ -1,5 +1,5 @@
 // Background script for handling API calls to backend
-const API_BASE_URL = 'https://fact-checker-website.vercel.app/'; // Replace with your actual domain
+const API_BASE_URL = 'https://fact-checker-website.vercel.app'; // Vercel production server
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Social Media Fact Checker extension installed');

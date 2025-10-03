@@ -13,28 +13,8 @@ const API_KEY = process.env.GEMINI_API_KEY!;
 
 // Schema removed - using free-form response with grounding
 
-function stripCodeFences(s: string) {
-  return s.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, "$1").trim();
-}
-
-function safeJSON(s: string) { 
-  try { 
-    return JSON.parse(s); 
-  } catch { 
-    return null; 
-  } 
-}
-
-function sanitize(out: any) {
-  const verdict = out?.verdict ?? out?.rating ?? "Unclear";
-  const rationale = out?.rationale ?? out?.overallExplanation ?? "No rationale provided.";
-  const sources = Array.isArray(out?.sources) ? out.sources : [];
-  const clean = sources
-    .map((x: any) => typeof x === "string" ? x : x?.url)
-    .filter((u: string) => typeof u === "string" && /^https?:\/\//i.test(u))
-    .slice(0, 5);
-  return { verdict, rationale, sources: clean };
-}
+// Removed unused functions: stripCodeFences, safeJSON, sanitize
+// These were old code that might have been causing confusion
 
 function extractGrounded(resp: any): {url: string, title: string | null}[] {
   const c0 = resp?.candidates?.[0];
@@ -263,16 +243,37 @@ async function extractClaims(text: string): Promise<string[]> {
       return ["Unable to extract claims from this post"];
     }
 
-    // Parse JSON response
+    // Parse JSON response with improved error handling
     const cleanedText = rawText.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, "$1").trim();
     let claims: string[];
     
     try {
       claims = JSON.parse(cleanedText);
-    } catch {
-      // If JSON parsing fails, try to extract claims from text
-      const lines = cleanedText.split('\n').filter((line: string) => line.trim());
-      claims = lines.map((line: string) => line.replace(/^[-*•]\s*/, '').replace(/^"\s*/, '').replace(/"\s*$/, '').trim());
+      
+      // Validate that claims is an array
+      if (!Array.isArray(claims)) {
+        throw new Error('Claims is not an array');
+      }
+      
+    } catch (parseError) {
+      console.warn('JSON parsing failed in extractClaims, attempting recovery:', parseError);
+      console.warn('Raw text:', cleanedText);
+      
+      // Try to extract JSON more aggressively
+      try {
+        const jsonMatch = cleanedText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          claims = JSON.parse(jsonMatch[0]);
+          console.log('Recovered claims JSON:', claims);
+        } else {
+          throw new Error('No JSON array found in response');
+        }
+      } catch (recoveryError) {
+        console.warn('Claims JSON recovery failed:', recoveryError);
+        // If JSON parsing fails, try to extract claims from text
+        const lines = cleanedText.split('\n').filter((line: string) => line.trim());
+        claims = lines.map((line: string) => line.replace(/^[-*•]\s*/, '').replace(/^"\s*/, '').replace(/"\s*$/, '').trim());
+      }
     }
 
     // Validate and filter claims
@@ -390,15 +391,35 @@ Rules:
       return factCheckResult;
     }
 
-    // Clean and parse the structured response
+    // Clean and parse the structured response with improved error handling
     const cleanedText = rawText.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, "$1").trim();
     let structuredResult;
     
     try {
       structuredResult = JSON.parse(cleanedText);
+      
+      // Validate the structured result has required fields
+      if (!structuredResult || typeof structuredResult !== 'object') {
+        throw new Error('Invalid structured result format');
+      }
+      
     } catch (parseError) {
-      console.warn('Failed to parse structured JSON, using original format:', parseError);
-      return factCheckResult;
+      console.warn('Failed to parse structured JSON, attempting recovery:', parseError);
+      console.warn('Raw structured text:', cleanedText);
+      
+      // Try to extract JSON more aggressively
+      try {
+        const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          structuredResult = JSON.parse(jsonMatch[0]);
+          console.log('Recovered structured JSON:', structuredResult);
+        } else {
+          throw new Error('No JSON found in structured response');
+        }
+      } catch (recoveryError) {
+        console.warn('Structured JSON recovery failed:', recoveryError);
+        return factCheckResult;
+      }
     }
 
     // Validate the structured result has required fields
@@ -516,17 +537,47 @@ async function performCombinedFactCheck(text: string, postDate?: string): Promis
   console.log("Grounded sources:", JSON.stringify(grounded, null, 2));
   console.log("Number of grounded sources:", grounded.length);
   
-  // Parse the model text loosely (it may not be strict JSON with tools enabled)
+  // Parse the model text with improved error handling
   const raw = (rawText || "").replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, "$1").trim();
   let body: any; 
+  
+  // Enhanced JSON parsing with better error handling
   try { 
+    // First try direct parsing
     body = JSON.parse(raw); 
-  } catch { 
-    body = { 
-      oa: "Unverifiable",
-      oc: 0.5,
-      claims: []
-    }; 
+    
+    // Validate the parsed JSON has required fields
+    if (!body || typeof body !== 'object') {
+      throw new Error('Invalid JSON structure');
+    }
+    
+    // Ensure required fields exist with defaults
+    if (!body.oa) body.oa = "Unverifiable";
+    if (typeof body.oc !== 'number') body.oc = 0.5;
+    if (!Array.isArray(body.claims)) body.claims = [];
+    
+  } catch (parseError) { 
+    console.warn('JSON parsing failed, attempting recovery:', parseError);
+    console.warn('Raw text that failed to parse:', raw);
+    
+    // Try to extract JSON from the text more aggressively
+    try {
+      // Look for JSON-like content between braces
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        body = JSON.parse(jsonMatch[0]);
+        console.log('Recovered JSON from text:', body);
+      } else {
+        throw new Error('No JSON found in response');
+      }
+    } catch (recoveryError) {
+      console.error('JSON recovery failed:', recoveryError);
+      body = { 
+        oa: "Unverifiable",
+        oc: 0.5,
+        claims: []
+      }; 
+    }
   }
 
   console.log("Parsed model JSON:", JSON.stringify(body, null, 2));
