@@ -241,7 +241,7 @@ ${JSON.stringify(factCheckResult.groundedSources, null, 2)}
         parts: [{ text: prompt }]
       }],
       generationConfig: {
-        maxOutputTokens: 4096,
+        maxOutputTokens: 8192,
         candidateCount: 1,
         temperature: 0.0,
         stopSequences: ["END_JSON"],
@@ -346,7 +346,7 @@ async function performCombinedFactCheck(text: string, postDate?: string): Promis
         const prompt = `You are a fact-checker on social media. You are given a post and you need to extract 1-4 factual claims, that can be researched and verified, not opinions or subjective statements. 
         For each claim:
         - find 1-3 sources that support or deny the claim. 
-        - Provide links to the sources.
+        - Provide links that go directly to the sources.
         - Give each source a title and only the title by itself (name of the source such as "CNN", "BBC", "Reuters", etc.)
         - Give each source a credibility score from 1-10 and a relevance score from 1-10.
         - Give each claim a rating from 1-10 and a confidence from 0.0-1.0.
