@@ -10,6 +10,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'factCheck') {
     handleFactCheck(request.data, sendResponse);
     return true; // Keep message channel open for async response
+  } else if (request.action === 'extractImageText') {
+    handleImageExtraction(request.images, sendResponse);
+    return true; // Keep message channel open for async response
   } else if (request.action === 'ping') {
     // Respond to ping to verify extension context is valid
     sendResponse({ status: 'ok' });
@@ -17,6 +20,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   } else if (request.action === 'getUserStatus') {
     getUserStatus(sendResponse);
     return true;
+  } else if (request.action === 'fetchImageAsBase64') {
+    handleFetchImageAsBase64(request.imageUrl, sendResponse);
+    return true; // Keep message channel open for async response
   }
 });
 
@@ -83,6 +89,99 @@ async function handleFactCheck(data, sendResponse) {
     sendResponse({
       success: false,
       error: error.message || 'An unexpected error occurred'
+    });
+  }
+}
+
+async function handleImageExtraction(images, sendResponse) {
+  try {
+    // Validate input
+    if (!images || !Array.isArray(images) || images.length === 0) {
+      throw new Error('No images provided');
+    }
+
+    // Call backend API for image extraction
+    const response = await fetch(`${API_BASE_URL}/api/image-extraction`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        images: images,
+        extractClaims: true // Automatically extract claims from images
+      }),
+      credentials: 'include' // Send session cookie
+    });
+
+    if (response.status === 401) {
+      // Not signed in - open login page
+      chrome.tabs.create({ url: `${API_BASE_URL}/login?from=extension` });
+      throw new Error('Please sign in on the website to use image extraction');
+    }
+
+    if (response.status === 402) {
+      // Quota exceeded - open upgrade page
+      const data = await response.json();
+      chrome.tabs.create({ url: data.upgradeUrl || `${API_BASE_URL}/billing` });
+      throw new Error('Free quota exceeded. Please upgrade to Pro for unlimited image extraction');
+    }
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to extract text from images');
+    }
+
+    const result = await response.json();
+    
+    sendResponse({
+      success: true,
+      extractedText: result.extractedText || '',
+      claims: result.claims || ''
+    });
+    
+  } catch (error) {
+    console.error('Image extraction error:', error);
+    sendResponse({
+      success: false,
+      error: error.message || 'An unexpected error occurred',
+      extractedText: '',
+      claims: ''
+    });
+  }
+}
+
+async function handleFetchImageAsBase64(imageUrl, sendResponse) {
+  try {
+    // Fetch image as blob (background script can bypass CORS for permitted hosts)
+    const response = await fetch(imageUrl);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    
+    // Convert blob to base64 (FileReader not available in service workers, use arrayBuffer)
+    const arrayBuffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    
+    // Convert bytes to base64 string
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    const base64String = 'data:' + blob.type + ';base64,' + btoa(binary);
+    
+    sendResponse({
+      success: true,
+      base64: base64String
+    });
+    
+  } catch (error) {
+    console.error('Error fetching image as base64:', error);
+    sendResponse({
+      success: false,
+      error: error.message || 'Failed to fetch image'
     });
   }
 }

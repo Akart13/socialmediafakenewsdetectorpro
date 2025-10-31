@@ -159,11 +159,42 @@ class SocialMediaExtractor {
     try {
       const postData = await this.extractPostData(post);
 
+      // Extract text from images if any are present
+      let imageText = '';
+      let imageClaims = '';
+      if (postData.imageElements && postData.imageElements.length > 0) {
+        try {
+          const imageExtraction = await this.extractTextFromImages(postData.imageElements);
+          imageText = imageExtraction.extractedText || '';
+          imageClaims = imageExtraction.claims || '';
+          
+          // Combine extracted image text with post text
+          if (imageText) {
+            postData.text = postData.text 
+              ? `${postData.text}\n\n[Text from images: ${imageText}]`
+              : imageText;
+          }
+        } catch (error) {
+          console.warn('Image extraction failed, continuing without image text:', error);
+          // Continue with text-only fact check
+        }
+      }
+
       // NEW: get claims from Prompt API via background (does not overwrite text)
       const enriched = await this.generateClaimsWithPromptAPI(postData);
 
+      // If we got claims from images, combine them with extracted claims
+      if (imageClaims) {
+        enriched.claims = enriched.claims 
+          ? `${enriched.claims}\n${imageClaims}`
+          : imageClaims;
+      }
+
+      // Remove imageElements before sending (not needed in request)
+      const { imageElements, ...dataToSend } = enriched;
+
       // Pass enriched data downstream (background will ignore unknown fields if any)
-      const result = await this.sendFactCheckRequest(enriched);
+      const result = await this.sendFactCheckRequest(dataToSend);
       this.displayResults(post, result);
     } catch (error) {
       console.error('Fact check error:', error);
@@ -218,16 +249,18 @@ class SocialMediaExtractor {
       throw new Error('Invalid post element provided');
     }
     
+    const imageElements = this.extractImages(post);
     const text = this.extractText(post);
     const postDate = this.extractPostDate(post);
     
-    // Validate that we have some text to analyze
-    if (!text || text.trim().length === 0) {
-      throw new Error('No text content found in the post');
+    // Validate that we have some text or images to analyze
+    if ((!text || text.trim().length === 0) && (!imageElements || imageElements.length === 0)) {
+      throw new Error('No text content or images found in the post');
     }
     
     return {
-      text: text,
+      text: text || '',
+      imageElements: imageElements, // Store image elements for later processing
       platform: this.platform,
       url: window.location.href,
       postDate: postDate,
@@ -252,6 +285,164 @@ class SocialMediaExtractor {
       
       default:
         return post.innerText;
+    }
+  }
+
+  // Image extraction - gets image elements from post
+  extractImages(post) {
+    const images = [];
+    let imageElements = [];
+
+    switch (this.platform) {
+      case 'twitter':
+        // Twitter/X images can be in various places
+        imageElements = post.querySelectorAll('img[src*="pbs.twimg.com"], img[src*="abs.twimg.com"], [data-testid="tweetPhoto"] img, article img[alt*="Image"]');
+        break;
+      
+      case 'instagram':
+        // Instagram images
+        imageElements = post.querySelectorAll('img[src*="instagram.com"], article img');
+        break;
+      
+      case 'facebook':
+        // Facebook images
+        imageElements = post.querySelectorAll('img[src*="fbcdn.net"], img[src*="facebook.com"], [data-imgperflogname="feedCoverPhoto"] img');
+        break;
+      
+      default:
+        imageElements = post.querySelectorAll('img');
+    }
+
+    // Filter out very small images (likely icons/avatars)
+    imageElements.forEach(img => {
+      if (img.naturalWidth > 100 && img.naturalHeight > 100 && 
+          img.complete && !img.src.includes('data:image/svg')) {
+        images.push(img);
+      }
+    });
+
+    return images.slice(0, 5); // Limit to 5 images
+  }
+
+  // Convert image element to base64
+  async imageToBase64(img) {
+    return new Promise((resolve, reject) => {
+      // Check if image is already a data URI
+      if (img.src.startsWith('data:')) {
+        resolve(img.src);
+        return;
+      }
+
+      // Create canvas to convert image
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const imgLoad = new Image();
+      
+      imgLoad.crossOrigin = 'anonymous';
+      
+      imgLoad.onload = () => {
+        try {
+          // Set canvas dimensions
+          canvas.width = Math.min(imgLoad.width, 1920); // Max width to reduce size
+          canvas.height = Math.min(imgLoad.height, 1920); // Max height
+          
+          // Draw image on canvas
+          ctx.drawImage(imgLoad, 0, 0, canvas.width, canvas.height);
+          
+          // Convert to base64
+          const base64 = canvas.toDataURL('image/jpeg', 0.85); // JPEG with 85% quality
+          resolve(base64);
+        } catch (error) {
+          console.warn('Failed to convert image to base64:', error);
+          reject(error);
+        }
+      };
+      
+      imgLoad.onerror = () => {
+        // Fallback: try to fetch the image via background script if CORS blocks
+        console.warn('Image load failed due to CORS, attempting fetch via background:', img.src);
+        // Try to fetch via background script
+        if (chrome.runtime?.sendMessage) {
+          chrome.runtime.sendMessage(
+            {
+              action: 'fetchImageAsBase64',
+              imageUrl: img.src
+            },
+            (response) => {
+              if (response && response.success && response.base64) {
+                resolve(response.base64);
+              } else {
+                reject(new Error('Image fetch failed via background'));
+              }
+            }
+          );
+        } else {
+          reject(new Error('Image load failed and background not available'));
+        }
+      };
+      
+      imgLoad.src = img.src;
+    });
+  }
+
+  // Extract text from images using the image-extraction endpoint
+  async extractTextFromImages(images) {
+    if (!images || images.length === 0) {
+      return { extractedText: '', claims: '' };
+    }
+
+    try {
+      // Convert all images to base64
+      const base64Images = [];
+      for (const img of images) {
+        try {
+          const base64 = await this.imageToBase64(img);
+          base64Images.push(base64);
+        } catch (error) {
+          console.warn('Skipping image due to conversion error:', error);
+          // Continue with other images
+        }
+      }
+
+      if (base64Images.length === 0) {
+        return { extractedText: '', claims: '' };
+      }
+
+      // Send to background script for processing
+      return new Promise((resolve, reject) => {
+        if (!chrome.runtime?.sendMessage) {
+          reject(new Error('Extension context invalidated'));
+          return;
+        }
+
+        chrome.runtime.sendMessage(
+          {
+            action: 'extractImageText',
+            images: base64Images
+          },
+          (response) => {
+            if (chrome.runtime.lastError) {
+              reject(new Error(chrome.runtime.lastError.message));
+              return;
+            }
+            if (!response) {
+              reject(new Error('No response from background'));
+              return;
+            }
+            if (response.success) {
+              resolve({
+                extractedText: response.extractedText || '',
+                claims: response.claims || ''
+              });
+            } else {
+              reject(new Error(response.error || 'Image extraction failed'));
+            }
+          }
+        );
+      });
+    } catch (error) {
+      console.error('Error extracting text from images:', error);
+      return { extractedText: '', claims: '' }; // Graceful fallback
     }
   }
 
