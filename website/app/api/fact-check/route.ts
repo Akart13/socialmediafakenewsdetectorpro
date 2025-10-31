@@ -343,7 +343,7 @@ async function performCombinedFactCheck(text: string, postDate?: string): Promis
     minute: '2-digit'
   })}` : '';
 
-        const prompt = `You are a fact-checker on social media. You are given a post and you need to extract 1-4 factual claims, that can be researched and verified, not opinions or subjective statements. 
+        const prompt = `You are a fact-checker on social media. You are given claims.
         For each claim:
         - find 1-3 sources that support or deny the claim. 
         - Provide links that go directly to the sources.
@@ -358,7 +358,7 @@ async function performCombinedFactCheck(text: string, postDate?: string): Promis
         - a 1-2 sentence overall explanation.
         When finished write "END_FACT_CHECK".
 
-        Post to analyze:
+        Claims to analyze:
         ${text}${dateContext}`;
 
   // Direct REST API call with grounding enabled
