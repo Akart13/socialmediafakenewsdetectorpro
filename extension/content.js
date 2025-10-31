@@ -158,8 +158,12 @@ class SocialMediaExtractor {
 
     try {
       const postData = await this.extractPostData(post);
-      const claims = await this.generateClaimsWithPromptAPI(postData)
-      const result = await this.sendFactCheckRequest(claims);
+
+      // NEW: get claims from Prompt API via background (does not overwrite text)
+      const enriched = await this.generateClaimsWithPromptAPI(postData);
+
+      // Pass enriched data downstream (background will ignore unknown fields if any)
+      const result = await this.sendFactCheckRequest(enriched);
       this.displayResults(post, result);
     } catch (error) {
       console.error('Fact check error:', error);
@@ -173,51 +177,38 @@ class SocialMediaExtractor {
   }
 
 
+  // ==== UPDATED: Prompt API via background bridge ====
   async generateClaimsWithPromptAPI(postData) {
-    let session = null;
-    try {
-      if (globalThis.LanguageModel?.create) {
-        session = await LanguageModel.create({
-          systemPrompt:
-            "Extract concise, verifiable claims from social media posts. " +
-            "Return ONLY a short bullet list (2–3 items), each on its own line starting with '- '. No extra prose."
-        });
-      } else if (globalThis.ai?.prompt?.create) {
-        session = await ai.prompt.create();
-      } else {
-        return null; // Built-in AI not available
-      }
-    } catch (e) {
-      console.warn("Prompt API init failed:", e);
-      return null;
-    }
-
     const text = (postData?.text || "").slice(0, 12000);
-    const platform = postData?.platform || "unknown";
-    const url = postData?.url || "";
-    const postDate = postData?.postDate || "";
+    if (!text) return postData;
 
-    const prompt = `
-  Extract 2–3 verifiable claims from the post below.
-  - Each line must start with "- "
-  - No commentary or headers, just the bullets.
-
-  Context:
-  - Platform: ${platform}
-  - URL: ${url}
-  - Post date (ISO): ${postDate}
-
-  Post text:
-  """${text}"""
-  `.trim();
+    // If the extension context is invalid or SW sleeping, we'll fall back gracefully.
+    const callBackground = () => new Promise((resolve, reject) => {
+      if (!chrome.runtime?.sendMessage) {
+        reject(new Error('Extension context invalidated'));
+        return;
+      }
+      try {
+        chrome.runtime.sendMessage(
+          { type: "PROMPT_EXTRACT_CLAIMS", text },
+          (resp) => {
+            if (chrome.runtime.lastError) {
+              return reject(new Error(chrome.runtime.lastError.message));
+            }
+            if (!resp) return reject(new Error("No response from background"));
+            resp.success ? resolve(resp.claims) : reject(new Error(resp.error));
+          }
+        );
+      } catch (e) { reject(e); }
+    });
 
     try {
-      postData.text = await session.prompt(prompt);
-      console.log("Prompt API claim extraction failed:");
-      return postData;
+      const claimsBullets = await callBackground();
+      // IMPORTANT: do NOT overwrite original text
+      return { ...postData, claims: claimsBullets };
     } catch (e) {
-      console.log("Prompt API claim extraction failed:", e);
-      return null;
+      console.warn("Prompt API (background) failed; proceeding without claims:", e);
+      return postData; // graceful fallback, keep text unchanged
     }
   }
 
@@ -338,6 +329,8 @@ class SocialMediaExtractor {
         action: 'factCheck',
         data: {
           text: data.text,
+          // NEW: include claims if present (background may ignore; harmless)
+          claims: data.claims || "",
           platform: data.platform,
           url: data.url,
           postDate: data.postDate,

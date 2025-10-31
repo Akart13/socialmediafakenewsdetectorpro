@@ -26,8 +26,8 @@ async function handleFactCheck(data, sendResponse) {
     if (!data || typeof data !== 'object') {
       throw new Error('Invalid data provided');
     }
-    
-    const { text, images, imageTexts, platform, postDate } = data;
+    console.log(data);
+    const { text, claims, images, imageTexts, platform, postDate } = data;
     
     // Validate required fields
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
@@ -42,6 +42,7 @@ async function handleFactCheck(data, sendResponse) {
       },
       body: JSON.stringify({ 
         text: text,
+        claims: claims,
         images: images || [],
         imageTexts: imageTexts || [],
         postDate: postDate
@@ -127,3 +128,72 @@ async function updateStats() {
     console.error('Error updating stats:', error);
   }
 }
+
+/***** ===== Prompt API (LanguageModel) bridge: ADD BELOW YOUR EXISTING CODE ===== *****/
+
+// Ensure Gemini Nano (on-device model) is ready
+async function __ensureModelReady() {
+  try {
+    if (!globalThis.LanguageModel?.availability) {
+      return { ok: false, reason: "Prompt API unavailable" };
+    }
+    let status = await LanguageModel.availability(); // "available" | "unavailable" | "downloadable" | "after-download"
+    if (status === "downloadable") {
+      // In some builds, creating a session triggers the download
+      try { const s = await LanguageModel.create({}); await s?.destroy?.(); } catch {}
+      status = await LanguageModel.availability();
+    }
+    return { ok: status === "available", reason: status };
+  } catch (e) {
+    return { ok: false, reason: String(e?.message || e) };
+  }
+}
+
+// Run one prompt with an optional system prompt
+async function __runPrompt({ systemPrompt, userText }) {
+  const ready = await __ensureModelReady();
+  if (!ready.ok) throw new Error(`Model not ready: ${ready.reason}`);
+
+  let session;
+  try {
+    session = await LanguageModel.create(
+      systemPrompt ? { systemPrompt } : {}
+    );
+    const out = await session.prompt(String(userText || "").slice(0, 12000));
+    return out;
+  } finally {
+    try { await session?.destroy?.(); } catch {}
+  }
+}
+
+// Listener #2: handle Prompt API requests (kept separate to avoid touching your existing listener)
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // New, claim-extraction flow used by your content script
+  if (request?.type === "PROMPT_EXTRACT_CLAIMS" && typeof request.text === "string") {
+    (async () => {
+      try {
+        const systemPrompt =
+          "Extract 2-3 verifiable claims from the content in the social media post. Each claim should be a single statement that can be verified or denied. Don't include any other text I just want the claims. DO NOT USE EMOJIS OR ANY OTHER SYMBOLS." +
+          "Do not give any analysis or commentary. Return ONLY short bullets, each starting with '- '. No extra prose.";
+        const claims = await __runPrompt({ systemPrompt, userText: request.text });
+        sendResponse({ success: true, claims });
+      } catch (e) {
+        sendResponse({ success: false, error: String(e?.message || e) });
+      }
+    })();
+    return true; // keep channel open for async response
+  }
+
+  // Optional compatibility: generic prompt runner (matches your earlier example name)
+  if (request?.action === "runGeminiPrompt" && typeof request.prompt === "string") {
+    (async () => {
+      try {
+        const result = await __runPrompt({ userText: request.prompt });
+        sendResponse({ success: true, response: result });
+      } catch (e) {
+        sendResponse({ success: false, error: String(e?.message || e) });
+      }
+    })();
+    return true;
+  }
+});

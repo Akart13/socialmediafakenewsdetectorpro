@@ -333,7 +333,7 @@ ${JSON.stringify(factCheckResult.groundedSources, null, 2)}
 }
 
 // Function to perform combined fact-checking with claim extraction
-async function performCombinedFactCheck(text: string, postDate?: string): Promise<any> {
+async function performCombinedFactCheck(text: string, claims: string, postDate?: string): Promise<any> {
   // Format the post date for the prompt
   const dateContext = postDate ? `\n\nPost Date: ${new Date(postDate).toLocaleDateString('en-US', { 
     year: 'numeric', 
@@ -350,16 +350,16 @@ async function performCombinedFactCheck(text: string, postDate?: string): Promis
         - Give each source a title and only the title by itself (name of the source such as "CNN", "BBC", "Reuters", etc.)
         - Give each source a credibility score from 1-10 and a relevance score from 1-10.
         - Give each claim a rating from 1-10 and a confidence from 0.0-1.0.
-        - Also give a 1-2 sentence explanation for each claim. 
+        - Also give a strictly 1 sentence explanation for each claim. 
         Finally, based on the claims and sources:
         - give an overall rating from 1-10, 
         - an overall confidence from 0.0-1.0, 
         - an overall assessment with 1-3 words such as "True", "Likely True", "Mixed", "Likely False", "False", or "Unverifiable"
-        - a 1-2 sentence overall explanation.
+        - Strictly 1 sentence overall explanation.
         When finished write "END_FACT_CHECK".
 
         Claims to analyze:
-        ${text}${dateContext}`;
+        ${claims}${dateContext}`;
 
   // Direct REST API call with grounding enabled
   const requestBody = {
@@ -462,7 +462,7 @@ async function handler(req: NextRequest) {
       }, { merge: true });
     }
 
-    const { text, postDate } = await req.json();
+    const { text, claims, postDate } = await req.json();
     
     if (!text || typeof text !== "string" || text.length < 5) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
@@ -485,7 +485,7 @@ async function handler(req: NextRequest) {
     });
 
     // Use the new combined fact-checking approach
-    const result = await performCombinedFactCheck(sanitizedText, postDate);
+    const result = await performCombinedFactCheck(sanitizedText, claims,postDate);
 
     // Structure the response using another Gemini API call
     const structuredResult = await structureFactCheckResponse(result);

@@ -3,6 +3,7 @@
   "name": "Social Media Fact Checker",
   "version": "1.1.0",
   "description": "Fact-check tweets, Instagram posts, and Facebook posts using AI-powered backend",
+  
   "permissions": [
     "storage"
   ],
