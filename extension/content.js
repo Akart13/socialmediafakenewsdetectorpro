@@ -158,7 +158,8 @@ class SocialMediaExtractor {
 
     try {
       const postData = await this.extractPostData(post);
-      const result = await this.sendFactCheckRequest(postData);
+      const claims = await this.generateClaimsWithPromptAPI(postData)
+      const result = await this.sendFactCheckRequest(claims);
       this.displayResults(post, result);
     } catch (error) {
       console.error('Fact check error:', error);
@@ -170,6 +171,56 @@ class SocialMediaExtractor {
       }
     }
   }
+
+
+  async generateClaimsWithPromptAPI(postData) {
+    let session = null;
+    try {
+      if (globalThis.LanguageModel?.create) {
+        session = await LanguageModel.create({
+          systemPrompt:
+            "Extract concise, verifiable claims from social media posts. " +
+            "Return ONLY a short bullet list (2–3 items), each on its own line starting with '- '. No extra prose."
+        });
+      } else if (globalThis.ai?.prompt?.create) {
+        session = await ai.prompt.create();
+      } else {
+        return null; // Built-in AI not available
+      }
+    } catch (e) {
+      console.warn("Prompt API init failed:", e);
+      return null;
+    }
+
+    const text = (postData?.text || "").slice(0, 12000);
+    const platform = postData?.platform || "unknown";
+    const url = postData?.url || "";
+    const postDate = postData?.postDate || "";
+
+    const prompt = `
+  Extract 2–3 verifiable claims from the post below.
+  - Each line must start with "- "
+  - No commentary or headers, just the bullets.
+
+  Context:
+  - Platform: ${platform}
+  - URL: ${url}
+  - Post date (ISO): ${postDate}
+
+  Post text:
+  """${text}"""
+  `.trim();
+
+    try {
+      postData.text = await session.prompt(prompt);
+      console.log("Prompt API claim extraction failed:");
+      return postData;
+    } catch (e) {
+      console.log("Prompt API claim extraction failed:", e);
+      return null;
+    }
+  }
+
 
   async extractPostData(post) {
     if (!post || !post.nodeType) {
