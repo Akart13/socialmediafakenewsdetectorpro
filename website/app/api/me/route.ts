@@ -18,7 +18,7 @@ async function handler(req: NextRequest) {
     };
     
     const today = new Date().toISOString().slice(0, 10);
-    const remaining = (data.plan === "pro" && data.subscriptionStatus === "active")
+    const remaining = data.plan === "pro"
       ? null
       : Math.max(0, 5 - (data.usage?.date === today ? (data.usage?.count || 0) : 0));
     
@@ -26,7 +26,6 @@ async function handler(req: NextRequest) {
       uid: user.uid, 
       email: user.email, 
       plan: data.plan, 
-      subscriptionStatus: data.subscriptionStatus || "inactive",
       remaining 
     });
   } catch {

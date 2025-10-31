@@ -434,7 +434,7 @@ async function handler(req: NextRequest) {
     const userData = userDoc.exists ? userDoc.data()! : { plan: 'free' };
     
     // Check if user is on pro plan
-    const isPro = userData.plan === 'pro' && userData.subscriptionStatus === 'active';
+    const isPro = userData.plan === 'pro';
     
     // Check daily quota for free users
     if (!isPro) {

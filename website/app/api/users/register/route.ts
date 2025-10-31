@@ -29,11 +29,11 @@ export async function POST(request: NextRequest) {
       });
     }
     
-    // Create new user document
+    // Create new user document - all users start as pro by default
     const userData = {
       uid,
       email,
-      plan: 'free',
+      plan: 'pro',
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       user: {
         uid,
         email,
-        plan: 'free'
+        plan: 'pro'
       }
     });
   } catch (error) {

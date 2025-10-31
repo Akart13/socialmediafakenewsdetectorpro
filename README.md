@@ -1,6 +1,6 @@
 # Social Media Fact Checker
 
-A comprehensive Chrome MV3 extension + website + backend system that provides AI-powered fact-checking for social media posts with usage limits and Pro subscriptions.
+A comprehensive Chrome MV3 extension + website + backend system that provides AI-powered fact-checking for social media posts.
 
 ## Architecture
 
@@ -8,17 +8,13 @@ This system consists of three main components:
 
 - **Chrome Extension (MV3)**: Popup UI for fact-checking with authentication
 - **Next.js Website**: User authentication and billing management
-- **Express Backend**: API server with JWT auth, usage limits, and Stripe integration
+- **Express Backend**: API server with JWT auth and usage limits
 
 ## Features
 
-- **5 Free Fact Checks Per Day**: Free users get 5 fact checks per UTC day
-- **Pro Subscription**: Unlimited fact checks with Stripe billing
+- **Unlimited Fact Checks**: All users have Pro access with unlimited fact checks
 - **Chrome Extension Integration**: Seamless auth flow using `chrome.identity.launchWebAuthFlow`
-- **Server-Side Enforcement**: All limits enforced on the backend
 - **Firebase Authentication**: Google OAuth integration
-- **Stripe Payments**: Secure subscription management
-- **Real-time Updates**: Extension polls for plan changes after upgrade
 
 ## Quick Start
 
@@ -33,7 +29,6 @@ This system consists of three main components:
 
 3. **Configure environment variables**:
    - Set up Firebase project and get service account
-   - Configure Stripe products and webhooks
    - Update domain configurations in all components
 
 4. **Install and run**:
@@ -54,7 +49,7 @@ This system consists of three main components:
 /website               # Next.js 14 app
   app/
     auth.tsx           # client-only Firebase login page
-    billing.tsx        # starts Stripe Checkout
+    billing.tsx        # plan information page
     ext/login.ts       # server route: handles extension login flow
   lib/
     firebaseClient.ts  # client SDK init
@@ -80,17 +75,8 @@ This system consists of three main components:
 
 ## Usage Limits
 
-- **Free Plan**: 5 fact checks per UTC day (resets at midnight UTC)
-- **Pro Plan**: Unlimited fact checks
-- All limits enforced server-side via Firestore transactions
+- **Pro Plan**: All users have unlimited fact checks
 - Extension polls `/api/me/limits` to display current usage
-
-## Billing Integration
-
-- Stripe Checkout for subscription management
-- Webhook handling for subscription status updates
-- Automatic plan upgrades after successful payment
-- Extension polls for plan changes after billing
 
 ## Data Model
 
@@ -99,8 +85,7 @@ This system consists of three main components:
 #### users/{uid}
 ```json
 {
-  "plan": "free" | "pro",
-  "stripeCustomerId": "cus_...",
+  "plan": "pro",
   "updatedAt": "2024-01-01T00:00:00Z"
 }
 ```
@@ -120,7 +105,6 @@ This system consists of three main components:
 - Firestore rules deny all client access
 - Server uses Firebase Admin SDK for all operations
 - JWT tokens expire after 24 hours
-- Stripe webhooks verified with signatures
 - CORS strictly configured for extension and website domains
 
 ## Development
@@ -152,9 +136,7 @@ npm run dev  # Express server with hot reload
 ## Testing
 
 1. **Authentication Flow**: Test extension login → website OAuth → extension auth
-2. **Fact Checking**: Verify free user limits and Pro unlimited access
-3. **Billing**: Test Stripe checkout and webhook handling
-4. **Upgrade Flow**: Verify extension polls and updates to Pro status
+2. **Fact Checking**: Verify unlimited Pro access for all users
 
 ## License
 

@@ -70,7 +70,7 @@ class PopupManager {
     // Update quota info
     const quotaInfo = document.getElementById('quotaInfo');
     if (quotaInfo) {
-      if (user.plan === 'pro' && user.subscriptionStatus === 'active') {
+      if (user.plan === 'pro') {
         quotaInfo.innerHTML = '<span class="quota-unlimited">Unlimited fact checks</span>';
       } else {
         const remaining = user.remaining || 0;
@@ -81,7 +81,7 @@ class PopupManager {
     // Show/hide upgrade button
     const upgradeBtn = document.getElementById('upgradeBtn');
     if (upgradeBtn) {
-      upgradeBtn.style.display = (user.plan === 'pro' && user.subscriptionStatus === 'active') ? 'none' : 'block';
+      upgradeBtn.style.display = user.plan === 'pro' ? 'none' : 'block';
     }
   }
 
