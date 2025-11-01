@@ -3,6 +3,13 @@ import { getCorsHeaders, createSessionCookie, createSessionFromIdToken } from '@
 
 export const runtime = 'nodejs';
 
+/**
+ * Handles POST requests to create a session cookie from a Firebase ID token.
+ * Used for maintaining authentication state across requests.
+ * 
+ * @param {NextRequest} request - The incoming request object containing idToken
+ * @returns {Promise<NextResponse>} Response with session cookie set
+ */
 export async function POST(request: NextRequest) {
   try {
     const origin = request.headers.get('origin');

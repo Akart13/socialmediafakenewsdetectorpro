@@ -4,6 +4,13 @@ import { signToken } from '@/lib/jwt';
 
 export const runtime = 'nodejs';
 
+/**
+ * Handles GET requests for extension login flow.
+ * Verifies user authentication, creates app JWT token, and redirects to extension with token.
+ * 
+ * @param {NextRequest} request - The incoming request object with redirect_uri parameter
+ * @returns {Promise<NextResponse>} Redirect response to extension with token in URL hash
+ */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -71,12 +78,22 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Handle POST requests (for form submissions)
+/**
+ * Handles POST requests for extension login (redirects to GET handler).
+ * 
+ * @param {NextRequest} request - The incoming request object
+ * @returns {Promise<NextResponse>} Same as GET handler
+ */
 export async function POST(request: NextRequest) {
   return GET(request);
 }
 
-// Handle OPTIONS requests for CORS preflight
+/**
+ * Handles CORS preflight OPTIONS requests for the extension login endpoint.
+ * 
+ * @param {NextRequest} request - The incoming request object
+ * @returns {NextResponse} Response with CORS headers
+ */
 export async function OPTIONS(request: NextRequest) {
   const response = new NextResponse(null, { status: 200 });
   

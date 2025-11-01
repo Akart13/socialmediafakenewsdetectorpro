@@ -1,5 +1,11 @@
 import Link from 'next/link';
 
+/**
+ * Home page component that displays the landing page for the fact checker application.
+ * Shows information about the service, how it works, and pricing plans.
+ * 
+ * @returns {JSX.Element} The home page component
+ */
 export default function Home() {
   return (
     <div>

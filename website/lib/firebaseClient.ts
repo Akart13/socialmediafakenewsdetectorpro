@@ -10,11 +10,20 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// Initialize Firebase
+/**
+ * Initializes Firebase app client-side, reusing existing instance if available.
+ * Prevents multiple initializations which would cause errors.
+ */
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
-// Initialize Firebase Auth
+/**
+ * Exports Firebase Auth instance for client-side authentication.
+ */
 export const auth = getAuth(app);
+
+/**
+ * Exports Google Auth Provider for Google Sign-In functionality.
+ */
 export const googleProvider = new GoogleAuthProvider();
 
 export default app;

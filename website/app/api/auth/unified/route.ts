@@ -3,10 +3,23 @@ import { getCorsHeaders, handleCorsOptions, createSessionCookie, registerUserVia
 
 export const runtime = 'nodejs';
 
+/**
+ * Handles CORS preflight OPTIONS requests for the unified auth endpoint.
+ * 
+ * @param {NextRequest} req - The incoming request object
+ * @returns {NextResponse} Response with CORS headers
+ */
 export async function OPTIONS(req: NextRequest) {
   return handleCorsOptions(req);
 }
 
+/**
+ * Handles POST requests for unified authentication that works for both website and extension.
+ * Verifies Firebase ID token, optionally registers user, and creates session cookie.
+ * 
+ * @param {NextRequest} req - The incoming request object containing idToken
+ * @returns {Promise<NextResponse>} Response with authentication status and session cookie
+ */
 export async function POST(req: NextRequest) {
   try {
     const origin = req.headers.get('origin');

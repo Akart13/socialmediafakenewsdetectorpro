@@ -6,6 +6,13 @@ import { signInWithPopup, onAuthStateChanged, User } from 'firebase/auth';
 import { auth, googleProvider } from '@/lib/firebaseClient';
 import Link from 'next/link';
 
+/**
+ * Login form component that handles user authentication via Google Sign-In.
+ * Manages authentication state, registration, and session creation.
+ * Handles extension login flow and redirects appropriately.
+ * 
+ * @returns {JSX.Element} The login form component
+ */
 function LoginForm() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -30,6 +37,11 @@ function LoginForm() {
     setIsVisible(true);
   }, []);
 
+  /**
+   * Effect hook that listens for Firebase authentication state changes.
+   * When user signs in, registers them in Firestore and creates a session cookie.
+   * Handles extension login flow and redirects appropriately.
+   */
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -101,6 +113,10 @@ function LoginForm() {
     return () => unsubscribe();
   }, [router, searchParams]);
 
+  /**
+   * Handles Google Sign-In button click by initiating Firebase authentication popup.
+   * Updates loading state and handles errors appropriately.
+   */
   const handleGoogleSignIn = async () => {
     try {
       setLoading(true);
@@ -207,6 +223,11 @@ function LoginForm() {
   );
 }
 
+/**
+ * Main login page component wrapped in Suspense for Next.js dynamic imports.
+ * 
+ * @returns {JSX.Element} The login page with Suspense wrapper
+ */
 export default function LoginPage() {
   return (
     <Suspense fallback={

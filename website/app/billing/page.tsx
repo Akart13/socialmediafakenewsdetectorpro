@@ -13,6 +13,12 @@ interface UserLimits {
   resetsAt: string;
 }
 
+/**
+ * Billing page content component that displays user's plan information and usage limits.
+ * Fetches user limits from the API and displays plan details.
+ * 
+ * @returns {JSX.Element} The billing page content component
+ */
 function BillingContent() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -20,6 +26,11 @@ function BillingContent() {
   const [loadingLimits, setLoadingLimits] = useState(true);
   const router = useRouter();
 
+  /**
+   * Fetches user's usage limits and plan information from the API.
+   * 
+   * @param {User} user - Firebase user object for authentication
+   */
   const fetchUserLimits = async (user: User) => {
     try {
       setLoadingLimits(true);
@@ -44,6 +55,10 @@ function BillingContent() {
     }
   };
 
+  /**
+   * Effect hook that listens for Firebase authentication state changes.
+   * Redirects to auth page if not authenticated, otherwise fetches user limits.
+   */
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
@@ -176,6 +191,11 @@ function BillingContent() {
   );
 }
 
+/**
+ * Main billing page component wrapped in Suspense for Next.js dynamic imports.
+ * 
+ * @returns {JSX.Element} The billing page with Suspense wrapper
+ */
 export default function BillingPage() {
   return (
     <Suspense fallback={<div>Loading...</div>}>

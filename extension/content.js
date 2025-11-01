@@ -1,10 +1,20 @@
 // Content script for extracting text from social media posts
 class SocialMediaExtractor {
+  /**
+   * Initializes the SocialMediaExtractor class by detecting the current platform
+   * and setting up the necessary functionality for fact checking posts.
+   */
   constructor() {
     this.platform = this.detectPlatform();
     this.init();
   }
 
+  /**
+   * Detects which social media platform the user is currently on by checking the hostname.
+   * Supports Twitter/X, Instagram, and Facebook platforms.
+   * 
+   * @returns {string} The platform name ('twitter', 'instagram', 'facebook', or 'unknown')
+   */
   detectPlatform() {
     const hostname = window.location.hostname;
     if (hostname.includes('twitter.com') || hostname.includes('x.com')) {
@@ -17,12 +27,21 @@ class SocialMediaExtractor {
     return 'unknown';
   }
 
+  /**
+   * Initializes the fact checking functionality by verifying extension validity,
+   * adding fact check buttons to posts, and setting up page change observation.
+   */
   init() {
     this.checkExtensionValidity();
     this.addFactCheckButtons();
     this.observePageChanges();
   }
 
+  /**
+   * Checks if the Chrome extension context is still valid and active.
+   * Verifies connectivity with the background script and displays a warning
+   * message if the extension context has been invalidated.
+   */
   checkExtensionValidity() {
     // Check if the extension context is still valid
     if (!chrome.runtime || !chrome.runtime.sendMessage) {
@@ -40,6 +59,11 @@ class SocialMediaExtractor {
     });
   }
 
+  /**
+   * Displays a user-friendly notification message when the extension context
+   * has been invalidated, typically after the extension is reloaded.
+   * The message appears in the top-right corner and auto-dismisses after 5 seconds.
+   */
   showContextInvalidatedMessage() {
     // Show a user-friendly message when extension context is invalidated
     const existingMessage = document.querySelector('.fact-check-context-invalidated');
@@ -78,7 +102,10 @@ class SocialMediaExtractor {
     }, 5000);
   }
 
-
+  /**
+   * Scans the page for social media posts and adds fact check buttons to each post
+   * that doesn't already have one. This ensures all visible posts can be fact checked.
+   */
   addFactCheckButtons() {
     // Add fact-check buttons to posts
     const posts = this.getPosts();
@@ -89,6 +116,12 @@ class SocialMediaExtractor {
     });
   }
 
+  /**
+   * Retrieves all social media post elements from the current page based on the detected platform.
+   * Uses platform-specific CSS selectors to find posts.
+   * 
+   * @returns {NodeList} A list of post elements found on the page
+   */
   getPosts() {
     switch (this.platform) {
       case 'twitter':
@@ -102,6 +135,12 @@ class SocialMediaExtractor {
     }
   }
 
+  /**
+   * Creates and adds a fact check button to a specific social media post.
+   * The button is styled and positioned appropriately for the current platform.
+   * 
+   * @param {HTMLElement} post - The DOM element representing a social media post
+   */
   addFactCheckButton(post) {
     const button = document.createElement('button');
     button.className = 'fact-check-btn';
@@ -129,6 +168,13 @@ class SocialMediaExtractor {
     }
   }
 
+  /**
+   * Finds the appropriate container element within a post where the fact check button should be inserted.
+   * Different platforms have different DOM structures for their action buttons.
+   * 
+   * @param {HTMLElement} post - The DOM element representing a social media post
+   * @returns {HTMLElement|null} The container element where the button should be placed, or null if not found
+   */
   getButtonContainer(post) {
     switch (this.platform) {
       case 'twitter':
@@ -142,6 +188,13 @@ class SocialMediaExtractor {
     }
   }
 
+  /**
+   * Performs a fact check on a social media post by extracting its content,
+   * including text and images, then sending it to the backend API for analysis.
+   * Displays the results in an interactive overlay when complete.
+   * 
+   * @param {HTMLElement} post - The DOM element representing the social media post to fact check
+   */
   async factCheckPost(post) {
     // Check if extension context is still valid
     if (!chrome.runtime || !chrome.runtime.sendMessage) {
@@ -207,8 +260,14 @@ class SocialMediaExtractor {
     }
   }
 
-
-  // ==== UPDATED: Prompt API via background bridge ====
+  /**
+   * Generates verifiable claims from post text using the Prompt API (LanguageModel)
+   * via the background script. This extracts 2-3 key claims that can be verified.
+   * Falls back gracefully if the API is unavailable.
+   * 
+   * @param {Object} postData - The post data object containing text and other metadata
+   * @returns {Object} The post data object with an additional 'claims' property containing extracted claims
+   */
   async generateClaimsWithPromptAPI(postData) {
     const text = (postData?.text || "").slice(0, 12000);
     if (!text) return postData;
@@ -243,7 +302,14 @@ class SocialMediaExtractor {
     }
   }
 
-
+  /**
+   * Extracts all relevant data from a social media post including text content,
+   * images, platform information, URL, and timestamp.
+   * 
+   * @param {HTMLElement} post - The DOM element representing the social media post
+   * @returns {Object} An object containing extracted post data (text, images, platform, url, postDate, timestamp)
+   * @throws {Error} If the post element is invalid or contains no extractable content
+   */
   async extractPostData(post) {
     if (!post || !post.nodeType) {
       throw new Error('Invalid post element provided');
@@ -268,6 +334,13 @@ class SocialMediaExtractor {
     };
   }
 
+  /**
+   * Extracts text content from a social media post using platform-specific selectors.
+   * Different platforms have different DOM structures for displaying post text.
+   * 
+   * @param {HTMLElement} post - The DOM element representing the social media post
+   * @returns {string} The extracted text content from the post
+   */
   extractText(post) {
     switch (this.platform) {
       case 'twitter':
@@ -288,7 +361,13 @@ class SocialMediaExtractor {
     }
   }
 
-  // Image extraction - gets image elements from post
+  /**
+   * Extracts image elements from a social media post, filtering out small images
+   * like avatars and icons. Returns up to 5 images per post.
+   * 
+   * @param {HTMLElement} post - The DOM element representing the social media post
+   * @returns {Array} An array of image elements found in the post (max 5)
+   */
   extractImages(post) {
     const images = [];
     let imageElements = [];
@@ -324,7 +403,13 @@ class SocialMediaExtractor {
     return images.slice(0, 5); // Limit to 5 images
   }
 
-  // Convert image element to base64
+  /**
+   * Converts an image element to a base64-encoded data URI.
+   * Handles CORS issues by attempting to fetch via the background script if direct conversion fails.
+   * 
+   * @param {HTMLImageElement} img - The image element to convert
+   * @returns {Promise<string>} A promise that resolves to a base64 data URI string
+   */
   async imageToBase64(img) {
     return new Promise((resolve, reject) => {
       // Check if image is already a data URI
@@ -385,7 +470,14 @@ class SocialMediaExtractor {
     });
   }
 
-  // Extract text from images using the image-extraction endpoint
+  /**
+   * Extracts text content from one or more images by converting them to base64
+   * and sending them to the backend API for OCR processing.
+   * Also extracts claims from the image text if available.
+   * 
+   * @param {Array} images - An array of image elements to extract text from
+   * @returns {Promise<Object>} An object containing extractedText and claims strings
+   */
   async extractTextFromImages(images) {
     if (!images || images.length === 0) {
       return { extractedText: '', claims: '' };
@@ -446,7 +538,13 @@ class SocialMediaExtractor {
     }
   }
 
-
+  /**
+   * Extracts the publication date from a social media post using platform-specific
+   * selectors. Falls back to the current date if extraction fails.
+   * 
+   * @param {HTMLElement} post - The DOM element representing the social media post
+   * @returns {string} An ISO string representation of the post date
+   */
   extractPostDate(post) {
     try {
       switch (this.platform) {
@@ -508,6 +606,13 @@ class SocialMediaExtractor {
     return new Date().toISOString();
   }
 
+  /**
+   * Sends a fact check request to the background script, which forwards it to the backend API.
+   * Handles extension context validation and error responses.
+   * 
+   * @param {Object} data - The post data to fact check (text, claims, platform, url, postDate, timestamp)
+   * @returns {Promise<Object>} A promise that resolves to the fact check results
+   */
   async sendFactCheckRequest(data) {
     return new Promise((resolve, reject) => {
       // Check if extension context is still valid
@@ -544,6 +649,13 @@ class SocialMediaExtractor {
     });
   }
 
+  /**
+   * Displays fact check results for a post by removing any existing results
+   * and showing a new interactive overlay with the analysis.
+   * 
+   * @param {HTMLElement} post - The DOM element representing the social media post
+   * @param {Object} results - The fact check results to display
+   */
   displayResults(post, results) {
     // Remove existing results
     const existingResults = post.querySelector('.fact-check-results');
@@ -555,6 +667,13 @@ class SocialMediaExtractor {
     this.showInteractiveOverlay(results);
   }
 
+  /**
+   * Displays fact check results in a clean, formatted way directly below the post.
+   * This is an alternative display method to the interactive overlay.
+   * 
+   * @param {HTMLElement} post - The DOM element representing the social media post
+   * @param {Object} data - The fact check data containing verdict, rationale, and sources
+   */
   showCleanResults(post, data) {
     const { verdict, rationale, sources } = data;
     
@@ -617,6 +736,12 @@ class SocialMediaExtractor {
     post.parentNode.insertBefore(resultsContainer, post.nextSibling);
   }
 
+  /**
+   * Creates and displays an interactive modal overlay with detailed fact check results.
+   * The overlay includes overall ratings, individual claim analysis, and source citations.
+   * 
+   * @param {Object} results - The fact check results object containing overallRating and claims
+   */
   showInteractiveOverlay(results) {
     // Remove any existing overlay
     const existingOverlay = document.querySelector('.fact-check-overlay');
@@ -767,6 +892,12 @@ class SocialMediaExtractor {
     this.setupOverlayEventListeners(overlay);
   }
 
+  /**
+   * Sets up event listeners for the interactive overlay including close button,
+   * expandable claims, overlay background clicks, and Escape key handling.
+   * 
+   * @param {HTMLElement} overlay - The overlay DOM element to attach listeners to
+   */
   setupOverlayEventListeners(overlay) {
     // Close button functionality
     const closeButton = overlay.querySelector('[data-close="true"]');
@@ -814,6 +945,13 @@ class SocialMediaExtractor {
     document.addEventListener('keydown', handleEscape);
   }
 
+  /**
+   * Creates a DOM element displaying the overall credibility rating for the fact check.
+   * Includes the assessment, rating score, confidence level, and explanation.
+   * 
+   * @param {Object} rating - The rating object containing assessment, rating, confidence, and explanation
+   * @returns {HTMLElement} A styled container element displaying the overall rating
+   */
   createOverallRating(rating) {
     const container = document.createElement('div');
     container.style.cssText = `
@@ -858,6 +996,13 @@ class SocialMediaExtractor {
     return container;
   }
 
+  /**
+   * Creates a DOM section containing all individual claims with their ratings and explanations.
+   * Each claim is displayed as a separate element with its own credibility assessment.
+   * 
+   * @param {Array} claims - An array of claim objects, each containing claim text, rating, and sources
+   * @returns {HTMLElement} A container element holding all claim elements
+   */
   createClaimsSection(claims) {
     const container = document.createElement('div');
     container.style.cssText = `
@@ -884,6 +1029,14 @@ class SocialMediaExtractor {
     return container;
   }
 
+  /**
+   * Creates a DOM element for a single claim including its text, credibility rating,
+   * explanation, and associated sources with links.
+   * 
+   * @param {Object} claimData - The claim data object containing claim, credibilityRating, and sources
+   * @param {number} index - The zero-based index of the claim in the list
+   * @returns {HTMLElement} A styled container element representing a single claim
+   */
   createClaimElement(claimData, index) {
     const container = document.createElement('div');
     container.style.cssText = `
@@ -959,6 +1112,13 @@ class SocialMediaExtractor {
     return container;
   }
 
+  /**
+   * Returns color scheme (background, border, text) based on a credibility rating score.
+   * High ratings (7+) use green, low ratings (<=3) use red, and medium ratings use yellow.
+   * 
+   * @param {number} rating - The credibility rating score from 1 to 10
+   * @returns {Object} An object with background, border, and text color values
+   */
   getRatingColor(rating) {
     if (rating >= 7) {
       return { background: '#d4edda', border: '#28a745', text: '#155724' };
@@ -969,6 +1129,13 @@ class SocialMediaExtractor {
     }
   }
 
+  /**
+   * Determines where to insert fact check results relative to a post based on the platform.
+   * Different platforms have different DOM structures that require different insertion points.
+   * 
+   * @param {HTMLElement} post - The DOM element representing the social media post
+   * @returns {HTMLElement} The DOM element where results should be inserted
+   */
   getResultsInsertPoint(post) {
     switch (this.platform) {
       case 'twitter':
@@ -982,6 +1149,13 @@ class SocialMediaExtractor {
     }
   }
 
+  /**
+   * Displays an error message in an overlay modal when a fact check fails.
+   * Handles both general errors and extension context invalidation errors with different UI.
+   * 
+   * @param {HTMLElement} post - The DOM element representing the social media post that failed
+   * @param {string} message - The error message to display to the user
+   */
   showError(post, message) {
     // Remove any existing overlay
     const existingOverlay = document.querySelector('.fact-check-overlay');
@@ -1050,6 +1224,11 @@ class SocialMediaExtractor {
     }, timeout);
   }
 
+  /**
+   * Sets up a MutationObserver to watch for new posts being added to the page dynamically.
+   * When new posts are detected, fact check buttons are automatically added to them.
+   * This handles infinite scroll and lazy-loaded content.
+   */
   observePageChanges() {
     // Use MutationObserver to handle dynamic content loading
     const observer = new MutationObserver((mutations) => {
@@ -1080,6 +1259,12 @@ class SocialMediaExtractor {
     });
   }
 
+  /**
+   * Returns the CSS selector string for finding posts on the current platform.
+   * Each platform uses different selectors to identify post elements.
+   * 
+   * @returns {string} A CSS selector string for finding posts on the current platform
+   */
   getPostSelector() {
     switch (this.platform) {
       case 'twitter':
@@ -1094,7 +1279,10 @@ class SocialMediaExtractor {
   }
 }
 
-// Initialize the extractor when the page loads
+/**
+ * Initializes the SocialMediaExtractor when the DOM is ready.
+ * Waits for DOMContentLoaded if the page is still loading, otherwise initializes immediately.
+ */
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
     new SocialMediaExtractor();

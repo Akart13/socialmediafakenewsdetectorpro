@@ -1,11 +1,23 @@
 // Background script for handling API calls to backend
 const API_BASE_URL = 'https://fact-checker-website.vercel.app'; // Vercel production server
 
+/**
+ * Listens for when the extension is installed or updated.
+ * Logs a message to confirm the extension installation.
+ */
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Social Media Fact Checker extension installed');
 });
 
-// Handle messages from content scripts
+/**
+ * Main message handler that routes incoming messages from content scripts and popup
+ * to appropriate handler functions based on the action type.
+ * 
+ * @param {Object} request - The message object containing action and data
+ * @param {Object} sender - Information about the sender
+ * @param {Function} sendResponse - Callback function to send a response
+ * @returns {boolean} Returns true to keep the message channel open for async responses
+ */
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'factCheck') {
     handleFactCheck(request.data, sendResponse);
@@ -26,6 +38,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
+/**
+ * Handles fact check requests from content scripts by forwarding them to the backend API.
+ * Validates input data, checks user authentication, handles quota limits, and returns results.
+ * 
+ * @param {Object} data - The post data to fact check (text, claims, platform, url, postDate, timestamp)
+ * @param {Function} sendResponse - Callback function to send the response back to the content script
+ */
 async function handleFactCheck(data, sendResponse) {
   try {
     // Validate input data
@@ -93,6 +112,13 @@ async function handleFactCheck(data, sendResponse) {
   }
 }
 
+/**
+ * Handles image text extraction requests by sending images to the backend API for OCR processing.
+ * Validates input, checks authentication and quotas, and returns extracted text and claims.
+ * 
+ * @param {Array} images - Array of base64-encoded image data URIs
+ * @param {Function} sendResponse - Callback function to send the response back to the content script
+ */
 async function handleImageExtraction(images, sendResponse) {
   try {
     // Validate input
@@ -150,6 +176,13 @@ async function handleImageExtraction(images, sendResponse) {
   }
 }
 
+/**
+ * Fetches an image from a URL and converts it to a base64 data URI.
+ * This is used to bypass CORS restrictions when content scripts cannot directly access images.
+ * 
+ * @param {string} imageUrl - The URL of the image to fetch
+ * @param {Function} sendResponse - Callback function to send the response back to the content script
+ */
 async function handleFetchImageAsBase64(imageUrl, sendResponse) {
   try {
     // Fetch image as blob (background script can bypass CORS for permitted hosts)
@@ -186,6 +219,11 @@ async function handleFetchImageAsBase64(imageUrl, sendResponse) {
   }
 }
 
+/**
+ * Retrieves the current user's authentication status and profile information from the backend.
+ * 
+ * @param {Function} sendResponse - Callback function to send the response back to the requester
+ */
 async function getUserStatus(sendResponse) {
   try {
     const response = await fetch(`${API_BASE_URL}/api/me`, {
@@ -204,7 +242,10 @@ async function getUserStatus(sendResponse) {
   }
 }
 
-
+/**
+ * Updates local storage statistics for fact checks performed.
+ * Tracks total checks and daily checks, resetting the daily count when the date changes.
+ */
 async function updateStats() {
   try {
     const result = await chrome.storage.local.get(['stats']);
@@ -230,7 +271,12 @@ async function updateStats() {
 
 /***** ===== Prompt API (LanguageModel) bridge: ADD BELOW YOUR EXISTING CODE ===== *****/
 
-// Ensure Gemini Nano (on-device model) is ready
+/**
+ * Checks if the LanguageModel (Gemini Nano) API is available and ready to use.
+ * Handles model download if needed and returns availability status.
+ * 
+ * @returns {Promise<Object>} An object with ok boolean and reason string indicating availability status
+ */
 async function __ensureModelReady() {
   try {
     if (!globalThis.LanguageModel?.availability) {
@@ -248,7 +294,15 @@ async function __ensureModelReady() {
   }
 }
 
-// Run one prompt with an optional system prompt
+/**
+ * Executes a prompt using the LanguageModel API with an optional system prompt.
+ * Creates a session, sends the prompt, and cleans up the session afterward.
+ * 
+ * @param {Object} params - Object containing systemPrompt (optional) and userText (required)
+ * @param {string} params.systemPrompt - Optional system prompt to configure the model behavior
+ * @param {string} params.userText - The user's text input to process (max 12000 characters)
+ * @returns {Promise<string>} The model's response text
+ */
 async function __runPrompt({ systemPrompt, userText }) {
   const ready = await __ensureModelReady();
   if (!ready.ok) throw new Error(`Model not ready: ${ready.reason}`);
@@ -265,7 +319,15 @@ async function __runPrompt({ systemPrompt, userText }) {
   }
 }
 
-// Listener #2: handle Prompt API requests (kept separate to avoid touching your existing listener)
+/**
+ * Additional message listener specifically for Prompt API requests from content scripts.
+ * Handles claim extraction and generic prompt execution using the on-device LanguageModel.
+ * 
+ * @param {Object} request - The message object containing type/action and text/prompt
+ * @param {Object} sender - Information about the sender
+ * @param {Function} sendResponse - Callback function to send the response
+ * @returns {boolean} Returns true to keep the message channel open for async responses
+ */
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // New, claim-extraction flow used by your content script
   if (request?.type === "PROMPT_EXTRACT_CLAIMS" && typeof request.text === "string") {

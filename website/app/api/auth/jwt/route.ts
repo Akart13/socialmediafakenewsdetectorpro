@@ -5,10 +5,23 @@ import { getCorsHeaders, handleCorsOptions } from '@/lib/auth-helpers';
 
 export const runtime = 'nodejs';
 
+/**
+ * Handles CORS preflight OPTIONS requests for the JWT auth endpoint.
+ * 
+ * @param {NextRequest} req - The incoming request object
+ * @returns {NextResponse} Response with CORS headers
+ */
 export async function OPTIONS(req: NextRequest) {
   return handleCorsOptions(req);
 }
 
+/**
+ * Handles POST requests for JWT-based authentication with multiple actions.
+ * Supports finalize (create tokens), logout, and refresh actions.
+ * 
+ * @param {NextRequest} req - The incoming request object containing action and tokens
+ * @returns {Promise<NextResponse>} Response based on the requested action
+ */
 export async function POST(req: NextRequest) {
   try {
     const origin = req.headers.get('origin');
@@ -37,6 +50,15 @@ export async function POST(req: NextRequest) {
   }
 }
 
+/**
+ * Handles the finalize action for JWT authentication.
+ * Verifies Firebase ID token and issues access and refresh tokens.
+ * 
+ * @param {NextRequest} req - The incoming request object
+ * @param {Record<string, string>} headers - CORS headers to include in response
+ * @param {string} idToken - Optional Firebase ID token (can also come from Authorization header)
+ * @returns {Promise<NextResponse>} Response with access token and refresh cookie
+ */
 async function handleFinalize(req: NextRequest, headers: Record<string, string>, idToken?: string) {
   // Get Firebase ID token from Authorization header if not in body
   const authHeader = req.headers.get('authorization');
@@ -67,12 +89,27 @@ async function handleFinalize(req: NextRequest, headers: Record<string, string>,
   return res;
 }
 
+/**
+ * Handles the logout action by clearing the refresh token cookie.
+ * 
+ * @param {Record<string, string>} headers - CORS headers to include in response
+ * @returns {NextResponse} Response with cleared refresh cookie
+ */
 async function handleLogout(headers: Record<string, string>) {
   const res = new NextResponse(null, { status: 204, headers });
   res.headers.append('Set-Cookie', 'rt=; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=0');
   return res;
 }
 
+/**
+ * Handles the refresh action to issue a new access token from a refresh token.
+ * Validates the refresh token and issues a new short-lived access token.
+ * 
+ * @param {NextRequest} req - The incoming request object
+ * @param {Record<string, string>} headers - CORS headers to include in response
+ * @param {string} refreshToken - Optional refresh token (can also come from cookie)
+ * @returns {Promise<NextResponse>} Response with new access token or error
+ */
 async function handleRefresh(req: NextRequest, headers: Record<string, string>, refreshToken?: string) {
   const cookie = req.headers.get('cookie') || '';
   const match = refreshToken || cookie.match(/(?:^|;\s*)rt=([^;]+)/)?.[1];
@@ -103,6 +140,13 @@ async function handleRefresh(req: NextRequest, headers: Record<string, string>, 
   }
 }
 
+/**
+ * Sets a refresh token as an HTTP-only cookie on the response.
+ * The cookie is configured for cross-origin requests and expires in 30 days.
+ * 
+ * @param {NextResponse} res - The Next.js response object
+ * @param {string} refreshToken - The refresh token to set as a cookie
+ */
 function setRefreshCookie(res: NextResponse, refreshToken: string) {
   res.headers.append(
     'Set-Cookie',

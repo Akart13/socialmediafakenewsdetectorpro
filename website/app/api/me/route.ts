@@ -5,6 +5,13 @@ import { db } from "@/lib/firebaseAdmin";
 
 export const runtime = 'nodejs';
 
+/**
+ * Handles GET requests to retrieve current user information including plan and quota.
+ * Requires authentication via session cookie.
+ * 
+ * @param {NextRequest} req - The incoming request object
+ * @returns {Promise<NextResponse>} Response with user data or 401 if not authenticated
+ */
 async function handler(req: NextRequest) {
   try {
     const user = await requireAuth(req);

@@ -13,7 +13,14 @@ const API_KEY = process.env.GEMINI_API_KEY!;
 
 const DAILY_FREE_LIMIT = 5;
 
-// Function to extract text from images using Gemini Vision
+/**
+ * Extracts text content from images using Gemini Vision API.
+ * Converts base64 image data and sends it to the vision model for OCR processing.
+ * 
+ * @param {string[]} images - Array of base64-encoded image data URIs
+ * @param {string} prompt - Optional custom prompt for text extraction (uses default if not provided)
+ * @returns {Promise<string>} Extracted text content from all images
+ */
 async function extractTextFromImages(images: string[], prompt?: string): Promise<string> {
   const defaultPrompt = `Extract all text content from this image. Include:
 1. Any visible text, captions, or labels
@@ -106,7 +113,13 @@ If no text is found, return "No text detected in image."`;
   return extractedText.trim();
 }
 
-// Function to extract claims from extracted text
+/**
+ * Extracts verifiable claims from extracted image text using Gemini API.
+ * Processes the text to identify 2-3 key claims that can be fact-checked.
+ * 
+ * @param {string} text - The extracted text from images to analyze
+ * @returns {Promise<string>} Bullet-point formatted list of extracted claims
+ */
 async function extractClaimsFromText(text: string): Promise<string> {
   if (!text || text.length < 10) {
     return "";
@@ -154,6 +167,14 @@ Return ONLY short bullet points, each starting with '- '. Do not include any ana
   }
 }
 
+/**
+ * Main request handler for image extraction API endpoint.
+ * Authenticates user, checks quota limits, validates input images, extracts text,
+ * and optionally extracts claims from the text.
+ * 
+ * @param {NextRequest} req - The incoming request object
+ * @returns {Promise<NextResponse>} Response containing extracted text and claims or error
+ */
 async function handler(req: NextRequest) {
   try {
     // Check authentication

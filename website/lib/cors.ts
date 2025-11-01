@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
+/**
+ * Higher-order function that wraps an API route handler with CORS support.
+ * Adds appropriate CORS headers to responses for allowed origins including Chrome extensions.
+ * 
+ * @param {Function} handler - The API route handler function to wrap
+ * @returns {Function} Wrapped handler function with CORS support
+ */
 export function withCors(handler: (req: NextRequest) => Promise<NextResponse>) {
   return async (req: NextRequest) => {
     const origin = req.headers.get('origin');

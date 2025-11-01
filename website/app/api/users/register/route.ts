@@ -4,6 +4,14 @@ import { requireAuth, createAuthResponse } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
+/**
+ * Handles POST requests to register a new user in Firestore.
+ * Creates a user document with default pro plan if user doesn't already exist.
+ * Requires authentication via Firebase ID token.
+ * 
+ * @param {NextRequest} request - The incoming request object
+ * @returns {Promise<NextResponse>} Response with success status and user data
+ */
 export async function POST(request: NextRequest) {
   try {
     console.log('Registration API called');

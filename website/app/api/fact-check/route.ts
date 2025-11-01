@@ -16,6 +16,13 @@ const API_KEY = process.env.GEMINI_API_KEY!;
 // Removed unused functions: stripCodeFences, safeJSON, sanitize
 // These were old code that might have been causing confusion
 
+/**
+ * Extracts grounded sources from Gemini API response metadata.
+ * Searches through grounding metadata structures to find URLs and titles of sources used by the model.
+ * 
+ * @param {any} resp - The Gemini API response object containing grounding metadata
+ * @returns {Array<{url: string, title: string | null}>} Array of source objects with URLs and optional titles
+ */
 function extractGrounded(resp: any): {url: string, title: string | null}[] {
   const c0 = resp?.candidates?.[0];
   const gm = c0?.groundingMetadata || {};
@@ -119,6 +126,13 @@ function extractGrounded(resp: any): {url: string, title: string | null}[] {
   return clean.slice(0, 5); // Increased from 3 to 5 to get more sources
 }
 
+/**
+ * Validates if a string is a valid HTTP or HTTPS URL.
+ * Checks for proper protocol, valid URL format, and absence of invalid characters.
+ * 
+ * @param {string} url - The URL string to validate
+ * @returns {boolean} True if the URL is valid, false otherwise
+ */
 function isValidUrl(url: string): boolean {
   try {
     // Check if url is a string and not empty
@@ -150,7 +164,13 @@ function isValidUrl(url: string): boolean {
 
 const DAILY_FREE_LIMIT = 5;
 
-// Helper function to convert assessment to numeric rating
+/**
+ * Converts a text assessment (like "True", "False", etc.) to a numeric rating from 1-10.
+ * Used to standardize credibility ratings for display and comparison.
+ * 
+ * @param {string} assessment - The text assessment value
+ * @returns {number} Numeric rating from 1 (False) to 9 (True)
+ */
 function getRatingFromAssessment(assessment: string): number {
   switch (assessment) {
     case "True": return 9;
@@ -163,7 +183,13 @@ function getRatingFromAssessment(assessment: string): number {
   }
 }
 
-// Helper function to get explanation from assessment
+/**
+ * Generates a human-readable explanation string based on an assessment value.
+ * Provides context about what each assessment level means.
+ * 
+ * @param {string} assessment - The text assessment value
+ * @returns {string} Human-readable explanation of the assessment
+ */
 function getExplanationFromAssessment(assessment: string): string {
   switch (assessment) {
     case "True": return "All claims are well-supported by evidence from authoritative sources";
@@ -176,8 +202,13 @@ function getExplanationFromAssessment(assessment: string): string {
   }
 }
 
-
-// Function to structure the fact-check response into a well-organized format
+/**
+ * Structures and formats the raw fact-check response into a well-organized JSON format.
+ * Uses Gemini API to parse and reorganize the response for better readability and consistency.
+ * 
+ * @param {any} factCheckResult - The raw fact-check result containing rawResponse and groundedSources
+ * @returns {Promise<any>} Structured fact-check result with organized ratings, claims, and sources
+ */
 async function structureFactCheckResponse(factCheckResult: any): Promise<any> {
   const prompt = `
 Transform the following fact-check response into a well-structured, organized format that's easier to read and understand.
@@ -332,7 +363,15 @@ ${JSON.stringify(factCheckResult.groundedSources, null, 2)}
   }
 }
 
-// Function to perform combined fact-checking with claim extraction
+/**
+ * Performs fact-checking by analyzing claims using Gemini API with Google Search grounding.
+ * Returns raw response text and grounded sources that can be used for verification.
+ * 
+ * @param {string} text - The original post text (for context)
+ * @param {string} claims - The extracted claims to fact-check
+ * @param {string} postDate - Optional ISO date string of when the post was published
+ * @returns {Promise<any>} Object containing rawResponse text and groundedSources array
+ */
 async function performCombinedFactCheck(text: string, claims: string, postDate?: string): Promise<any> {
   // Format the post date for the prompt
   const dateContext = postDate ? `\n\nPost Date: ${new Date(postDate).toLocaleDateString('en-US', { 
@@ -424,6 +463,14 @@ async function performCombinedFactCheck(text: string, claims: string, postDate?:
   };
 }
 
+/**
+ * Main request handler for fact-check API endpoint.
+ * Authenticates user, checks quota limits, validates input, performs fact-checking,
+ * and returns structured results.
+ * 
+ * @param {NextRequest} req - The incoming request object
+ * @returns {Promise<NextResponse>} Response containing structured fact-check results or error
+ */
 async function handler(req: NextRequest) {
   try {
     // Check authentication

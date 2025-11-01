@@ -3,6 +3,13 @@ import jwt from 'jsonwebtoken';
 
 export const runtime = 'nodejs';
 
+/**
+ * Generates CORS headers based on the request origin.
+ * Allows requests from whitelisted origins.
+ * 
+ * @param {string|null} origin - The origin header from the request
+ * @returns {Record<string, string>} Object containing CORS headers
+ */
 function cors(origin: string | null) {
   const allow = new Set([
     'chrome-extension://abcdefghijklmnopqrstuvwxyz123456', // Replace with actual extension ID
@@ -21,12 +28,25 @@ function cors(origin: string | null) {
   };
 }
 
+/**
+ * Handles CORS preflight OPTIONS requests for the refresh endpoint.
+ * 
+ * @param {NextRequest} req - The incoming request object
+ * @returns {NextResponse} Response with CORS headers
+ */
 export async function OPTIONS(req: NextRequest) {
   const origin = req.headers.get('origin');
   const headers = cors(origin);
   return new NextResponse(null, { status: 200, headers });
 }
 
+/**
+ * Handles POST requests to refresh an access token using a refresh token from cookie.
+ * Validates the refresh token and issues a new short-lived access token.
+ * 
+ * @param {NextRequest} req - The incoming request object
+ * @returns {Promise<NextResponse>} Response with new access token or error
+ */
 export async function POST(req: NextRequest) {
   try {
     const origin = req.headers.get('origin');

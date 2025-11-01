@@ -6,6 +6,14 @@ export const metadata: Metadata = {
   description: 'Verify social media posts with AI-powered fact checking',
 }
 
+/**
+ * Root layout component that wraps all pages in the application.
+ * Provides the HTML structure and global styles.
+ * 
+ * @param {Object} props - Component props
+ * @param {React.ReactNode} props.children - Child components to render
+ * @returns {JSX.Element} The root layout component
+ */
 export default function RootLayout({
   children,
 }: {

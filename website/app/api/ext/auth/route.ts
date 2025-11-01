@@ -3,6 +3,13 @@ import { getCorsHeaders, createSessionCookie, createSessionFromIdToken, verifyId
 
 export const runtime = 'nodejs';
 
+/**
+ * Handles POST requests for extension authentication.
+ * Verifies Firebase ID token, registers user if needed, and creates session cookie.
+ * 
+ * @param {NextRequest} request - The incoming request object containing idToken
+ * @returns {Promise<NextResponse>} Response with authentication status and session cookie
+ */
 export async function POST(request: NextRequest) {
   try {
     const origin = request.headers.get('origin');

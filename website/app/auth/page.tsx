@@ -6,6 +6,13 @@ import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/aut
 import { auth, googleProvider } from '@/lib/firebaseClient';
 import Link from 'next/link';
 
+/**
+ * Authentication page component that handles user sign-in and account management.
+ * Displays user information when authenticated, or sign-in options when not.
+ * Handles extension authentication flow.
+ * 
+ * @returns {JSX.Element} The authentication page component
+ */
 export default function AuthPage() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -13,6 +20,10 @@ export default function AuthPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const router = useRouter();
 
+  /**
+   * Effect hook that listens for Firebase authentication state changes.
+   * Registers users in Firestore and handles extension authentication flow.
+   */
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
@@ -82,6 +93,9 @@ export default function AuthPage() {
     return () => unsubscribe();
   }, []);
 
+  /**
+   * Handles Google Sign-In button click by initiating Firebase authentication popup.
+   */
   const handleGoogleSignIn = async () => {
     try {
       setSigningIn(true);
@@ -95,6 +109,9 @@ export default function AuthPage() {
     }
   };
 
+  /**
+   * Handles user sign-out by calling Firebase signOut and clearing local user state.
+   */
   const handleSignOut = async () => {
     try {
       await signOut(auth);

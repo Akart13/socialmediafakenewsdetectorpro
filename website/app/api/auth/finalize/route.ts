@@ -4,6 +4,13 @@ import { adminAuth } from '@/lib/firebaseAdmin';
 
 export const runtime = 'nodejs';
 
+/**
+ * Sets a refresh token as an HTTP-only cookie on the response.
+ * The cookie is configured for cross-origin requests and expires in 30 days.
+ * 
+ * @param {NextResponse} res - The Next.js response object
+ * @param {string} refreshToken - The refresh token to set as a cookie
+ */
 function setRefreshCookie(res: NextResponse, refreshToken: string) {
   res.headers.append(
     'Set-Cookie',
@@ -18,6 +25,13 @@ function setRefreshCookie(res: NextResponse, refreshToken: string) {
   );
 }
 
+/**
+ * Generates CORS headers based on the request origin.
+ * Allows requests from whitelisted origins.
+ * 
+ * @param {string|null} origin - The origin header from the request
+ * @returns {Record<string, string>} Object containing CORS headers
+ */
 function cors(origin: string | null) {
   const allow = new Set([
     'chrome-extension://abcdefghijklmnopqrstuvwxyz123456', // Replace with actual extension ID
@@ -36,12 +50,25 @@ function cors(origin: string | null) {
   };
 }
 
+/**
+ * Handles CORS preflight OPTIONS requests for the finalize endpoint.
+ * 
+ * @param {NextRequest} req - The incoming request object
+ * @returns {NextResponse} Response with CORS headers
+ */
 export async function OPTIONS(req: NextRequest) {
   const origin = req.headers.get('origin');
   const headers = cors(origin);
   return new NextResponse(null, { status: 200, headers });
 }
 
+/**
+ * Handles POST requests to finalize authentication by verifying Firebase ID token
+ * and issuing JWT access and refresh tokens. Used primarily for extension authentication.
+ * 
+ * @param {NextRequest} req - The incoming request object with Firebase ID token in Authorization header
+ * @returns {Promise<NextResponse>} Response with access token and refresh cookie
+ */
 export async function POST(req: NextRequest) {
   try {
     const origin = req.headers.get('origin');

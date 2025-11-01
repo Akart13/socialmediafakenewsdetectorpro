@@ -1,15 +1,25 @@
 // Popup script for the fact checker extension
 class PopupManager {
+  /**
+   * Initializes the PopupManager by calling the init method.
+   */
   constructor() {
     this.init();
   }
 
+  /**
+   * Initializes the popup interface by loading user status, statistics, and setting up event listeners.
+   */
   async init() {
     await this.loadUserStatus();
     await this.loadStats();
     this.setupEventListeners();
   }
 
+  /**
+   * Sets up click event listeners for sign in and upgrade buttons in the popup.
+   * Opens new tabs with appropriate URLs when buttons are clicked.
+   */
   setupEventListeners() {
     // Sign in button
     const signInBtn = document.getElementById('signInBtn');
@@ -28,6 +38,10 @@ class PopupManager {
     }
   }
 
+  /**
+   * Loads the current user's authentication status from the background script.
+   * Updates the UI to show user information if signed in, or shows sign in UI if not.
+   */
   async loadUserStatus() {
     try {
       const response = await chrome.runtime.sendMessage({ action: 'getUserStatus' });
@@ -42,6 +56,12 @@ class PopupManager {
     }
   }
 
+  /**
+   * Updates the popup UI to display the signed-in user's information including email,
+   * plan type, and remaining quota. Hides the sign in section and shows the user section.
+   * 
+   * @param {Object} user - User object containing email, plan, and remaining quota information
+   */
   updateUserUI(user) {
     // Hide sign-in UI
     const signInSection = document.getElementById('signInSection');
@@ -85,6 +105,10 @@ class PopupManager {
     }
   }
 
+  /**
+   * Shows the sign in UI by hiding the user section and displaying the sign in section.
+   * Called when the user is not authenticated or authentication fails.
+   */
   showSignInUI() {
     // Hide user section
     const userSection = document.getElementById('userSection');
@@ -99,7 +123,10 @@ class PopupManager {
     }
   }
 
-
+  /**
+   * Loads and displays fact check statistics from local storage.
+   * Shows total checks performed and checks performed today, resetting daily count when date changes.
+   */
   async loadStats() {
     try {
       const result = await chrome.storage.local.get(['stats']);
@@ -120,6 +147,13 @@ class PopupManager {
     }
   }
 
+  /**
+   * Displays a status message in the popup with appropriate styling based on type.
+   * Messages automatically hide after 3 seconds.
+   * 
+   * @param {string} message - The status message text to display
+   * @param {string} type - The type of message ('success' or 'error') for styling
+   */
   showStatus(message, type) {
     const statusElement = document.getElementById('status');
     statusElement.textContent = message;
@@ -133,7 +167,10 @@ class PopupManager {
   }
 }
 
-// Initialize popup when DOM is loaded
+/**
+ * Initializes the PopupManager when the popup DOM is fully loaded.
+ * This ensures all DOM elements are available before attempting to interact with them.
+ */
 document.addEventListener('DOMContentLoaded', () => {
   new PopupManager();
 });
