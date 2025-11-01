@@ -1,132 +1,252 @@
 # Social Media Fact Checker Chrome Extension
 
-A Chrome extension that uses Google Gemini 2.5 Flash AI to fact-check tweets, Instagram posts, and Facebook posts. The extension can extract text from images and provides credibility ratings for individual claims and overall posts.
+A Chrome Extension (Manifest V3) that provides AI-powered fact-checking for social media posts on Twitter/X, Instagram, and Facebook. The extension integrates with a Next.js backend API to provide comprehensive claim extraction, source verification, and credibility scoring.
 
 ## Features
 
-- 🔍 **Multi-Platform Support**: Works on Twitter/X, Instagram, and Facebook
-- 🧠 **AI-Powered Analysis**: Uses Google Gemini 2.5 Flash for claim extraction and fact-checking
-- 📊 **Credibility Scoring**: Provides credibility and relevance scores for sources
-- 🎯 **Grounding**: Finds relevant sources for each claim using AI grounding
-- 📱 **Modern UI**: Clean, responsive interface with real-time results
+- **Multi-Platform Support**: Works on Twitter/X, Instagram, and Facebook
+- **AI-Powered Analysis**: Uses Google Gemini 2.5 Flash Lite for claim extraction and fact-checking
+- **Image Text Extraction**: Extracts text from images using Gemini Vision API
+- **Credibility Scoring**: Provides detailed credibility ratings (1-10) for individual claims and overall posts
+- **Source Grounding**: Automatically finds and verifies sources using Google Search grounding
+- **Interactive UI**: Clean, modern overlay interface with expandable claim details
+- **User Authentication**: Integrated with Firebase for secure user management
+- **Usage Tracking**: Displays daily usage statistics in popup
 
+## Installation
 
-### 1. Install the Extension
+### From Source
 
-1. Open Chrome and go to `chrome://extensions/`
-2. Enable "Developer mode" in the top right
+1. Open Chrome and navigate to `chrome://extensions/`
+2. Enable "Developer mode" (toggle in top right corner)
 3. Click "Load unpacked"
-4. Select the extension folder
-5. The extension should now appear in your extensions list
+4. Select the `extension` folder from this project
+5. The extension icon should appear in your Chrome toolbar
 
+### Configuration
 
-### 2. Use the Extension
+Before using the extension, ensure the backend API is running:
 
-1. Visit Twitter, Instagram, or Facebook
-2. Look for posts with a "🔍 Fact Check" button
-3. Click the button to analyze the post
-4. Wait for AI analysis (may take 10-30 seconds)
-5. Review the results showing:  
-   * Overall credibility rating  
-   * Individual claim analysis  
-   * Source credibility and relevance scores  
-   * Detailed explanations
+1. Update `API_BASE_URL` in `background.js` to match your backend URL:
+   ```javascript
+   const API_BASE_URL = 'https://your-backend-url.com';
+   ```
+
+2. The extension will automatically handle authentication through the website
 
 ## How It Works
 
-### 1. Text Extraction
+### Platform Detection
 
-* Extracts text from the post content
-* Combines all text for comprehensive analysis
+The extension automatically detects which social media platform you're on:
+- **Twitter/X**: Detects `twitter.com` or `x.com` domains
+- **Instagram**: Detects `instagram.com` domain
+- **Facebook**: Detects `facebook.com` domain
 
-### 2. Claim Analysis
+### Fact-Checking Process
 
-* AI identifies individual factual claims in the post
-* Separates verifiable facts from opinions
-* Focuses on claims that can be researched
+1. **Post Detection**: Content script scans the page for social media posts
+2. **Button Injection**: Adds "Fact Check" buttons to each post
+3. **Content Extraction**: When clicked, extracts:
+   - Post text content
+   - Images (up to 5 per post)
+   - Post date and metadata
+4. **Image Processing**: Converts images to base64 and extracts text via OCR
+5. **Claim Extraction**: Uses Prompt API (LanguageModel) to identify 2-3 verifiable claims
+6. **Fact-Checking**: Sends claims to backend API for analysis with source grounding
+7. **Result Display**: Shows interactive overlay with:
+   - Overall credibility rating and explanation
+   - Individual claim analysis with ratings
+   - Source citations with credibility and relevance scores
 
-### 3. Source Finding
-
-* Uses AI grounding to find relevant sources
-* Searches for authoritative sources (.gov, .edu, news organizations)
-* Assigns credibility and relevance scores to each source
-
-### 4. Credibility Assessment
-
-* AI analyzes sources to rate each claim's credibility
-* Provides confidence levels and explanations
-* Calculates overall post credibility rating
-
-## File Structure
+### File Structure
 
 ```
-├── manifest.json          # Extension configuration
-├── background.js          # Service worker for API calls
-├── content.js            # Main content script
-├── image-extractor.js    # Image text extraction
-├── popup.html           # Settings popup interface
-├── popup.js             # Popup functionality
+extension/
+├── manifest.json          # Extension configuration (MV3)
+├── background.js          # Service worker for API calls and Prompt API bridge
+├── content.js            # Main content script for post detection and UI injection
+├── popup.html           # Popup interface HTML
+├── popup.js             # Popup functionality (user status, statistics)
 ├── styles.css           # Extension styling
 ├── icons/               # Extension icons
+│   ├── icon16.png
+│   ├── icon48.png
+│   └── icon128.png
 └── README.md           # This file
 ```
 
-## API Usage
+## Key Components
 
-The extension uses Google Gemini 2.5 Flash Lite API for:
+### Content Script (`content.js`)
 
-* Text extraction from images
-* Claim identification and analysis
-* Source finding with grounding
-* Credibility assessment
+The main content script that runs on social media pages:
 
-## Privacy & Security
+- **SocialMediaExtractor Class**: Main class managing all fact-checking functionality
+  - Platform detection
+  - Post element finding and button injection
+  - Content extraction (text, images, dates)
+  - Image to base64 conversion
+  - Fact-check request handling
+  - Result display in interactive overlay
 
-* No data is sent to third-party services except Google Gemini
-* All processing happens through Google's secure API endpoints
-* No personal data is collected or stored
+**Key Methods**:
+- `detectPlatform()`: Identifies current social media platform
+- `addFactCheckButtons()`: Scans page and adds buttons to posts
+- `extractPostData()`: Extracts all relevant data from a post
+- `factCheckPost()`: Main fact-checking workflow
+- `showInteractiveOverlay()`: Displays results in modal overlay
 
-## Troubleshooting
+### Background Service Worker (`background.js`)
 
-### Extension Not Working
+Handles API communication and Prompt API bridge:
 
-* Ensure you're on a supported platform (Twitter, Instagram, Facebook)
-* Try refreshing the page
-* Check browser console for any error messages
+- **Message Routing**: Routes messages from content script to appropriate handlers
+- **API Communication**: Makes requests to backend API endpoints
+- **Image Fetching**: Handles CORS issues by fetching images via service worker
+- **Prompt API Bridge**: Provides LanguageModel API access for claim extraction
+- **User Status**: Retrieves user authentication status and quota info
+- **Statistics**: Tracks fact-check usage in local storage
 
-### No Fact Check Button Appearing
+**Key Functions**:
+- `handleFactCheck()`: Forwards fact-check requests to backend API
+- `handleImageExtraction()`: Sends images to backend for OCR
+- `handleFetchImageAsBase64()`: Fetches images bypassing CORS
+- `getUserStatus()`: Checks user authentication and plan
+- `updateStats()`: Updates local usage statistics
 
-* Make sure you're on a supported social media platform
-* Check that the content script is loaded (look for errors in console)
-* Try refreshing the page
+### Popup (`popup.js`)
 
-### API Errors
+User interface for extension management:
 
-* Check your internet connectivity
-* Verify the Google Gemini API is accessible
-* Check browser console for detailed error messages
+- **PopupManager Class**: Manages popup interface
+  - User authentication status display
+  - Plan information (Free/Pro)
+  - Usage statistics (total checks, today's checks)
+  - Sign-in and upgrade button handlers
+
+**Key Methods**:
+- `loadUserStatus()`: Fetches and displays user information
+- `loadStats()`: Displays fact-check statistics
+- `updateUserUI()`: Updates UI based on user authentication status
+
+## API Integration
+
+The extension communicates with the backend API through the background service worker:
+
+### Endpoints Used
+
+- `POST /api/fact-check`: Main fact-checking endpoint
+- `POST /api/image-extraction`: Image text extraction
+- `GET /api/me`: User information and quota
+- `GET /api/auth/unified`: Authentication endpoint
+
+### Authentication
+
+The extension uses session cookies for authentication:
+- Session cookies are set by the website after Google OAuth
+- Cookies are sent with all API requests via `credentials: 'include'`
+- Extension automatically redirects to login if authentication fails
+
+## Usage
+
+### Basic Usage
+
+1. Navigate to Twitter, Instagram, or Facebook
+2. Browse your feed - fact-check buttons will appear on posts
+3. Click the "Fact Check" button on any post
+4. Wait for analysis (typically 10-30 seconds)
+5. Review results in the interactive overlay
+
+### Understanding Results
+
+- **Overall Rating**: 1-10 credibility score for the entire post
+- **Individual Claims**: Each claim gets its own rating and explanation
+- **Sources**: List of sources with credibility and relevance scores
+- **Confidence**: AI's confidence level in the assessment
+
+### Popup Features
+
+Click the extension icon to:
+- View your current plan (Free/Pro)
+- See remaining fact checks (Free users)
+- Check total usage statistics
+- Sign in or upgrade your plan
 
 ## Development
 
-To modify or extend the extension:
+### Making Changes
 
-1. Make changes to the source files
+1. Edit the source files (`content.js`, `background.js`, `popup.js`)
 2. Go to `chrome://extensions/`
-3. Click the refresh button on the extension card
-4. Test your changes
+3. Click the refresh icon on the extension card
+4. Test your changes on a social media platform
+
+### Testing
+
+- Test on all supported platforms (Twitter, Instagram, Facebook)
+- Verify button injection on dynamically loaded content
+- Test authentication flow from extension popup
+- Verify quota limits for free users
+
+### Debugging
+
+- Open browser DevTools (F12)
+- Check Console tab for JavaScript errors
+- Check Network tab for API requests
+- Use Extension Service Worker DevTools for background script debugging
+
+## Troubleshooting
+
+### Buttons Not Appearing
+
+- Verify you're on a supported platform (Twitter, Instagram, Facebook)
+- Check browser console for errors
+- Try refreshing the page
+- Verify the extension is enabled
+
+### Authentication Issues
+
+- Click extension icon and try "Sign In"
+- Ensure website is accessible
+- Check that cookies are enabled
+- Verify backend API is running
+
+### API Errors
+
+- Check internet connectivity
+- Verify backend API is accessible
+- Check browser console for detailed error messages
+- Verify you haven't exceeded daily limits (free users)
+
+### Extension Context Invalidated
+
+- This happens when the extension is reloaded
+- Refresh the page to restore functionality
+- The extension will show a notification if this occurs
+
+## Privacy & Security
+
+- **No Data Collection**: Extension doesn't collect personal information
+- **Secure Communication**: All API calls use HTTPS
+- **Session Cookies**: Secure, HttpOnly cookies for authentication
+- **Source Code**: All code is open source and auditable
+
+## Limitations
+
+- Maximum 5 images per post
+- Free users limited to 5 fact checks per day
+- Requires internet connection for API calls
+- Processing time depends on API response (10-30 seconds typical)
 
 ## License
 
-This project is open source and available under the MIT License.
+This extension is part of the Social Media Fact Checker project and is available under the MIT License.
 
 ## Support
 
 For issues or questions:
-
 1. Check the troubleshooting section above
-2. Review the browser console for error messages
-3. Ensure all requirements are met (API key, supported platforms)
-
-## About
-
-This extension is part of the paymentintegration project and provides fact-checking capabilities for social media content.
+2. Review browser console for error messages
+3. Verify all requirements are met (backend API running, authentication set up)
+4. See main project README for backend setup instructions
