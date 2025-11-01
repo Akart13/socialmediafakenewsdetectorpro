@@ -15,7 +15,8 @@ This system consists of three main components:
 ### Core Functionality
 
 - **Multi-Platform Support**: Works seamlessly on Twitter/X, Instagram, and Facebook
-- **AI-Powered Fact Checking**: Uses Google Gemini 2.5 Flash Lite for intelligent claim extraction and verification
+- **Google Prompt API**: Extracts claims and sends to Google Gemini 2.5 Flash Lite for analysis
+- **AI-Powered Fact Checking**: Uses Google Gemini 2.5 Flash Lite for intelligent claim verification
 - **Image Text Extraction**: Extracts and analyzes text from images using Gemini Vision API
 - **Source Grounding**: Automatically finds and verifies sources using Google Search grounding
 - **Credibility Scoring**: Provides detailed credibility ratings (1-10) for claims and overall posts
@@ -25,7 +26,6 @@ This system consists of three main components:
 
 - **Firebase Authentication**: Google OAuth sign-in integration
 - **Session Management**: Secure session cookies for cross-origin requests
-- **Usage Limits**: Free plan (5 fact checks per day) and Pro plan (unlimited)
 - **Extension Integration**: Seamless authentication flow between extension and website
 
 ## Project Structure
@@ -69,8 +69,6 @@ This system consists of three main components:
 ### Prerequisites
 
 - Node.js 18+ and npm
-- Firebase project with Authentication and Firestore enabled
-- Google Gemini API key
 - Chrome browser for extension development
 
 ### Installation
@@ -78,7 +76,7 @@ This system consists of three main components:
 1. **Clone the repository**:
    ```bash
    git clone <repository-url>
-   cd paymentintegration
+   cd factify
    ```
 
 2. **Install website dependencies**:
@@ -141,7 +139,7 @@ This system consists of three main components:
 2. **Website Redirect**: Extension opens website login page
 3. **Google OAuth**: User completes Google sign-in on website
 4. **Session Creation**: Website creates Firebase session cookie
-5. **User Registration**: New users are automatically registered in Firestore with Pro plan
+5. **User Registration**: New users are automatically registered in Firestore with unlimited fact checks
 6. **Extension Authentication**: Extension uses session cookies for API authentication
 
 ### API Architecture
@@ -176,13 +174,6 @@ This system consists of three main components:
   "updatedAt": "2024-01-01T12:00:00Z"
 }
 ```
-
-## Usage Limits
-
-- **Free Plan**: 5 fact checks per day (resets at midnight UTC)
-- **Pro Plan**: Unlimited fact checks (all new users default to Pro)
-- Usage is tracked per day in Firestore `usage` collection
-- Extension popup displays remaining checks for free users
 
 ## Security Features
 
@@ -250,8 +241,3 @@ Built with Next.js 14 App Router:
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
-
-## Support
-
-For detailed setup instructions, see [install.md](install.md).
-For extension-specific documentation, see [extension/README.md](extension/README.md).
